@@ -3,7 +3,7 @@
 > **Nostation Auto Sync Companion** — 让 Matrix Lab NOSTATION 的 hub 时间在每次开机时自动校准，不用再手动打开网页。
 
 <p>
-  <img alt="version" src="https://img.shields.io/badge/version-1.7.0-2ea44f">
+  <img alt="version" src="https://img.shields.io/badge/version-1.8.1-2ea44f">
   <img alt="platform" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4">
   <img alt="python" src="https://img.shields.io/badge/python-3.12-3776ab">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-2ea44f">
@@ -292,9 +292,40 @@ Get-Content status.txt
 
 ## 说明
 
-- 本软件**不联网**，不会上传任何数据，只修改设备时钟
+- 本软件**不上传任何数据**；只有「检查更新」会访问 GitHub 查版本号，且可关闭
 - 不会改动按键映射、灯光设置或屏幕内容
 - 作者与 Matrix Lab 无隶属关系，这是第三方工具
+
+## 自动更新
+
+程序启动约 3 秒后会**静默查询 GitHub 上的最新版本**。没有更新时完全不打扰你。
+
+发现新版本时会弹窗告知版本号、下载大小和更新内容，并提供一键升级：
+
+1. 下载新版（带进度条）
+2. **校验 SHA256**，确认文件完整未被篡改
+3. 自动替换旧 exe 并重新打开程序（约 3~10 秒）
+
+你的开机自启设置、日志、配置都不受影响。
+
+**关于自动替换的实现**：Windows 不允许程序覆盖自己正在运行的 exe，所以替换交给一个
+独立的 PowerShell 小脚本完成 —— 它等主程序退出后覆盖文件、再把你重新拉起来。
+过程记录在 `%LOCALAPPDATA%\NostationSync\self-update.log`。
+
+### 手动检查与关闭自动检查
+
+菜单 `帮助(H)` 里有三项：
+
+| 菜单项 | 作用 |
+| --- | --- |
+| **检查更新** | 立刻手动检查一次，并可一键升级 |
+| **版本历史** | 单独窗口，列出每个版本改了什么（不堆在「关于」里） |
+| **启动时自动检查更新** | 可勾选的开关，不想要自动检查就取消勾选（仍可手动检查） |
+
+### 隐私说明
+
+**只有「检查更新」会访问网络**（GitHub 公开 API，用于获取版本号），再无其它联网行为，
+且该行为**可以关闭**。校时功能始终只与本机 USB 设备通信。
 
 ## 许可
 
