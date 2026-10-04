@@ -42,8 +42,9 @@ APP_VERSION = "1.10.1"
 APP_BUILD = 1101
 # 版本历史（每次迭代都要改 APP_VERSION / APP_BUILD 并在这里记一行）
 CHANGELOG = [
-    ("1.10.1", "构建脚本改为自动探测 Python：不再写死某一台机器的解释器路径，"
-               "别人克隆后可直接运行 build_exe.ps1 打包；新增 requirements.txt"),
+    ("1.10.1", "构建脚本改为自动探测 Python，别人克隆后可直接打包；"
+               "exe 体积从 12.8 MB 精简到 11.1 MB：窗口图标改为构建时预生成"
+               "（运行时不再需要 Pillow），并去掉 Tcl/Tk 里用不到的编码表与示例资源"),
     ("1.10.0", "许可条款改动后会重新弹出确认：条款有了独立的版本号，"
                "只要条款文字有变，已同意的老用户下次打开界面会读到新条款并再次确认"
                "（只升软件版本、不改条款时不会打扰）。后台同步不受影响，"
@@ -282,6 +283,38 @@ def config_path():
 
 
 ICON_FILENAME = "companion.ico"
+# 构建时预生成、随 exe 一起打包的窗口图标（只含 16/24/32/48/64 这几档）
+WINDOW_ICON_FILENAME = "window-icon.ico"
+
+
+def _bundled_data_dirs():
+    """查找打包进 exe 的数据文件所在目录（PyInstaller 解压到 _MEIPASS）。"""
+    out = []
+    if getattr(sys, "frozen", False):
+        base = getattr(sys, "_MEIPASS", None) or os.path.dirname(
+            os.path.abspath(sys.executable))
+        out.append(base)
+        out.append(os.path.dirname(os.path.abspath(sys.executable)))
+    out.append(script_dir())
+    return out
+
+
+def window_icon_asset_path():
+    """找构建时预生成的 window-icon.ico；找不到返回空串。
+
+    两种布局都要找：
+      * 打包后：--add-data 把它放在 exe 解压目录的**根**下
+      * 源码方式运行：它在仓库的 assets/ 子目录里
+    """
+    for d in _bundled_data_dirs():
+        for rel in (WINDOW_ICON_FILENAME, os.path.join("assets", WINDOW_ICON_FILENAME)):
+            p = os.path.join(d, rel)
+            try:
+                if os.path.exists(p):
+                    return p
+            except Exception:
+                continue
+    return ""
 
 
 def icon_path():
@@ -308,16 +341,23 @@ def icon_path():
 
 
 def prepare_window_icon():
-    """从内嵌图标里取最大帧，另存一份"画好的小图标"，供窗口使用。
+    """返回供窗口使用的「画好的小图标」路径。
 
-    为什么需要这一步：`iconbitmap(原始 ico)` 会让 Windows 去取 ICO 里
+    为什么需要单独一份：`iconbitmap(原始 ico)` 会让 Windows 去取 ICO 里
     **最小**的那帧（16px），而窗口标题栏在 175% 缩放下要显示 56px，
     于是被硬放大、发糊，大尺寸那套精细设计完全用不上。
-    这里用 Pillow 把 256px 精细帧按 LANCZOS 画成 32/48 的小图另存，
-    Windows 拿到的就是像素精确的清晰图标。
-    （Tk 的 iconphoto 不能用来解决：它不支持 RGBA 原始数据，
-      传 PNG 数据在部分 Tk 版本上也会被拒。）
+    所以要用一份只含合适尺寸（16/24/32/48/64）的图标。
+
+    这份图标由 **构建时** 的 make_window_icon.py 生成并打包进 exe
+    （见 assets/window-icon.ico）—— 这样运行时不需要 Pillow，
+    exe 里可以把它整个排除掉，体积少 2.6 MB。
+    如果那份文件不存在（例如源码方式直接跑、还没构建过），
+    才退回用 Pillow 现场生成，保证开发时也能正常显示图标。
     """
+    prebuilt = window_icon_asset_path()
+    if prebuilt:
+        return prebuilt
+
     src = icon_path()
     if not src:
         return ""

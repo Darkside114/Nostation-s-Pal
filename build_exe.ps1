@@ -73,15 +73,44 @@ if (-not (Test-Path -LiteralPath $Python)) { throw "python not found: $Python" }
 # code page), so build under an ASCII name and rename afterwards.
 $BuildName = 'NostationAutoSyncCompanion'
 $excludes = @(
-    # NOTE: do NOT exclude PIL itself. companion_app needs Pillow at runtime to
-    # draw the crisp window/taskbar icon from the icon's largest frame; excluding
-    # it made the app silently fall back to the raw .ico (blurry 16px frame).
-    # But we only need PNG/ICO decoding, and Pillow's AVIF decoder alone is
-    # ~7.5 MB, so drop the codecs we never touch.
-    'PIL._avif', 'PIL._webp', 'PIL._imagingcms', 'PIL.ImageQt', 'PIL.ImageShow',
+    # PIL is fully excluded on purpose: assets/window-icon.ico is generated at
+    # BUILD time by make_window_icon.py (run below) and shipped inside the exe, so
+    # the app no longer needs Pillow at runtime just to draw the titlebar icon.
+    # That alone removes ~2.6 MB (PIL/_imaging). If you ever make the app read
+    # images at runtime again, drop this exclude.
+    'PIL',
     'numpy', 'pandas', 'matplotlib', 'scipy', 'lxml', 'openpyxl',
     'pptx', 'docx', 'XlsxWriter', 'setuptools', 'pip', 'pytest', 'unittest',
     'pydoc', 'doctest', 'sqlite3'
+)
+
+# Tcl/Tk data files that are pure dead weight for this app.
+#
+# How they are removed (this took a couple of tries to get right):
+#   * --exclude-module does NOT work here -- it only accepts Python module names,
+#     not file globs, so an earlier attempt silently did nothing.
+#   * Trimming the PyInstaller work directory does NOT work either: PyInstaller
+#     collects these files straight from the Python installation's tcl\ tree, and
+#     --clean re-extracts them anyway.
+#   * So we MOVE them out of the Python installation before building and move
+#     them back afterwards (see $movedTcl below). The install is left untouched.
+#
+# What goes: encoding tables for Japanese / Korean / Traditional Chinese (the UI
+# is Simplified Chinese + ASCII, and cp936 MUST stay -- it is Tcl's system
+# encoding here), plus the Tix widget demo and Tcl/Tk demo assets.
+$trimPatterns = @(
+    'tcl8.6\encoding\jis*.enc', 'tcl8.6\encoding\euc-jp*.enc',
+    'tcl8.6\encoding\shiftjis*.enc', 'tcl8.6\encoding\cp932*.enc',
+    'tcl8.6\encoding\cp949*.enc', 'tcl8.6\encoding\ksc*.enc',
+    'tcl8.6\encoding\euc-kr*.enc', 'tcl8.6\encoding\johab*.enc',
+    'tcl8.6\encoding\big5*.enc', 'tcl8.6\encoding\cp950*.enc',
+    'tcl8.6\encoding\euc-tw*.enc',
+    # these three do not start with 'jis'/'big5' but are Japanese/Korean too
+    'tcl8.6\encoding\iso2022-jp.enc', 'tcl8.6\encoding\iso2022-kr.enc',
+    'tcl8.6\encoding\macJapan.enc',
+    'tix8.4.3', 'tk8.6\demos',
+    # static link libraries for embedding Tcl/Tk -- never used at run time
+    '*.lib'
 )
 
 Write-Host "Source dir: $here" -ForegroundColor Cyan
@@ -114,6 +143,12 @@ if ($LASTEXITCODE -ne 0) { throw 'make_splash.py failed' }
 $splashFile = Join-Path $here 'assets/splash.png'
 if (-not (Test-Path $splashFile)) { throw 'splash.png was not generated' }
 
+Write-Host 'Generating window icon (so PIL is not needed at runtime)...'
+& $Python (Join-Path $here 'make_window_icon.py')
+if ($LASTEXITCODE -ne 0) { throw 'make_window_icon.py failed' }
+$windowIcon = Join-Path $here 'assets/window-icon.ico'
+if (-not (Test-Path $windowIcon)) { throw 'assets/window-icon.ico was not generated' }
+
 foreach ($d in 'build', 'dist', '__pycache__') {
     $p = Join-Path $here $d
     if (Test-Path $p) { Remove-Item $p -Recurse -Force }
@@ -132,6 +167,9 @@ $args = @(
     # the quotes it adds when handing arguments to a native exe, so a separate
     # 'SOURCE','DEST' pair arrives as two tokens and PyInstaller rejects it.
     ("--add-data={0}{1}." -f $iconFile, [char]58),
+    # The pre-scaled window icon also goes inside the exe. Shipping it means the
+    # app does not need Pillow at runtime (see the 'PIL' exclude above).
+    ("--add-data={0}{1}." -f $windowIcon, [char]58),
     # Splash screen: the onefile bootloader shows this immediately, so the user
     # never sees the blank white window while the app is being unpacked.
     '--splash', $splashFile,
@@ -149,14 +187,51 @@ $args = @(
 foreach ($ex in $excludes) { $args += @('--exclude-module', $ex) }
 $args += (Join-Path $here 'companion_app.py')
 
-Write-Host 'Building (about 1-2 minutes)...' -ForegroundColor Cyan
-# PyInstaller logs to stderr; with ErrorActionPreference=Stop that would abort
-# the script, so relax it for the native call and check the exit code instead.
-$ErrorActionPreference = 'Continue'
-& $Python @args
-$code = $LASTEXITCODE
-$ErrorActionPreference = 'Stop'
-if ($code -ne 0) { throw "PyInstaller failed, exit code $code" }
+# ---------------------------------------------------------------------------
+# Temporarily move unneeded Tcl/Tk data aside so PyInstaller does not pick it up.
+# The Python installation itself is left exactly as it was (restored in $finally).
+# ---------------------------------------------------------------------------
+$pyRoot = Split-Path -Parent $Python
+$tclRoot = Join-Path $pyRoot 'tcl'
+$movedTcl = @()
+$trimMoved = 0
+if (Test-Path -LiteralPath $tclRoot) {
+    foreach ($pat in $trimPatterns) {
+        $hits = @(Get-ChildItem -Path $tclRoot -Recurse -File -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -like (Join-Path $tclRoot $pat) })
+        foreach ($h in $hits) {
+            try {
+                if (-not (Test-Path -LiteralPath ($h.FullName + '.nogotrim'))) {
+                    Move-Item -LiteralPath $h.FullName -Destination ($h.FullName + '.nogotrim') -Force -ErrorAction Stop
+                    $movedTcl += $h.FullName
+                }
+            } catch { }
+        }
+    }
+}
+$trimMoved = $movedTcl.Count
+Write-Host ("Tcl data set aside for this build: {0} files" -f $trimMoved) -ForegroundColor Cyan
+
+try {
+    Write-Host 'Building (about 1-2 minutes)...' -ForegroundColor Cyan
+    # PyInstaller logs to stderr; with ErrorActionPreference=Stop that would abort
+    # the script, so relax it for the native call and check the exit code instead.
+    $ErrorActionPreference = 'Continue'
+    & $Python @args
+    $code = $LASTEXITCODE
+    $ErrorActionPreference = 'Stop'
+    if ($code -ne 0) { throw "PyInstaller failed, exit code $code" }
+} finally {
+    # Always restore, even if the build blew up -- the Python install must not be
+    # left altered.
+    foreach ($f in $movedTcl) {
+        try {
+            if (Test-Path -LiteralPath ($f + '.nogotrim')) {
+                Move-Item -LiteralPath ($f + '.nogotrim') -Destination $f -Force -ErrorAction Stop
+            }
+        } catch { }
+    }
+}
 
 $built = Get-ChildItem (Join-Path $here 'dist\*.exe') | Select-Object -First 1
 if (-not $built) { throw 'No exe produced in dist\' }

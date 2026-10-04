@@ -3,7 +3,7 @@
 > **Nostation Auto Sync Companion** — 让 Matrix Lab NOSTATION 的 hub 时间在每次开机时自动校准，不用再手动打开网页。
 
 <p>
-  <img alt="version" src="https://img.shields.io/badge/version-1.10.0-2ea44f">
+  <img alt="version" src="https://img.shields.io/badge/version-1.10.1-2ea44f">
   <img alt="platform" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4">
   <img alt="python" src="https://img.shields.io/badge/python-3.12-3776ab">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-2ea44f">
@@ -236,6 +236,7 @@ nostation-hub-sync/
 ├── requirements.txt          # Python 依赖
 ├── make_icon.py              # 应用图标生成器
 ├── make_splash.py            # 启动画面生成器
+├── make_window_icon.py       # 构建时预生成窗口图标（免去运行时依赖 Pillow）
 ├── generate_version_info.py  # 生成 exe 的版本资源
 ├── LICENSE                   # MIT 许可证
 ├── LICENSE_TERMS.txt         # 许可条款纯文本（与程序内一致）
