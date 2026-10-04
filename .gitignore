@@ -30,3 +30,6 @@ config.json
 Thumbs.db
 desktop.ini
 $RECYCLE.BIN/
+
+# 开发时的临时脚本目录（不进仓库）
+tools/_scratch/

@@ -40,10 +40,11 @@ import traceback
 
 APP_TITLE = "Nostation 自动同步伴侣"
 APP_NAME_EN = "Nostation Auto Sync Companion"
-APP_VERSION = "1.11.0"
-APP_BUILD = 1110
+APP_VERSION = "1.12.0"
+APP_BUILD = 1120
 # 版本历史（每次迭代都要改 APP_VERSION / APP_BUILD 并在这里记一行）
 CHANGELOG = [
+    ("1.12.0", "根治「Failed to remove temporary directory」警告框：后台同步进程现在会接收系统关机通知并优雅退出，不再被 Windows 强杀，临时目录因此能正常清理；启动时也会回收历史残留"),
     ("1.11.0", "处理「Failed to remove temporary directory」警告框：单文件程序"
                "非正常结束时会在系统临时目录留下约 30 MB 残留，现在启动时会自动"
                "回收（只清理确属本程序的），退出前也会先释放临时目录里的 Tcl/Tk "
@@ -2368,6 +2369,12 @@ def watch_loop(interval=3.0, refresh=1800.0):
     reset_log("后台同步")
     log("后台模式启动 (pid {}, interval {}, refresh {})".format(os.getpid(), interval, refresh))
     log("后台同步进程启动 (pid {})".format(os.getpid()))
+
+    # 挂上系统关机通知：关机时主动、干净地退出，避免被 Windows 强杀后
+    # 临时目录残留、以及 bootloader 弹出
+    # 「Failed to remove temporary directory」警告框。
+    install_shutdown_handler()
+
     try:
         known = {d["path"] for d in pick_targets()}
     except Exception as exc:
@@ -2380,8 +2387,11 @@ def watch_loop(interval=3.0, refresh=1800.0):
         sync_now()
         last_sync = time.time()
 
-    while True:
-        time.sleep(interval)
+    while not shutdown_requested():
+        # 用 Event.wait 代替 time.sleep：关机通知一到就能立刻醒来退出，
+        # 不必等满一个轮询间隔（否则仍可能落在关机窗口里被强杀）。
+        if _SHUTDOWN_EVENT.wait(interval):
+            break
         try:
             now = {d["path"] for d in pick_targets()}
         except Exception as exc:
@@ -2412,6 +2422,151 @@ def watch_loop(interval=3.0, refresh=1800.0):
             log("定时刷新校时")
             sync_now()
             last_sync = time.time()
+
+    log("收到退出请求，后台同步进程结束")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# 系统关机/注销通知：让常驻的后台进程能"优雅退出"
+# ---------------------------------------------------------------------------
+# 为什么需要这个：
+#   后台同步进程（--watch）是开机自启、长期常驻的。关机时 Windows 会强制结束它，
+#   它来不及做任何收尾；而 PyInstaller 单文件模式的 bootloader 在退出时还要删除
+#   自己的临时解压目录（%TEMP%\_MEIxxxx，约 30 MB）。被强杀时这一步做不了，
+#   于是残留一份 30 MB 的副本，而且 bootloader 会在事后弹出
+#   「Failed to remove temporary directory」警告框。
+#
+#   解决办法：给进程挂一个隐藏的 message-only 窗口，接收
+#   WM_QUERYENDSESSION / WM_ENDSESSION，在关机流程里主动、干净地退出。
+#   这样 bootloader 就有机会把临时目录删掉，既不残留也不弹框。
+#
+# 实现在独立线程里跑消息循环（主线程在做同步轮询），通过一个 Event 通知主循环。
+
+_SHUTDOWN_EVENT = threading.Event()
+_SHUTDOWN_HWND = [None]          # 用 list 存，便于回调里写
+
+
+def _shutdown_handler_installed():
+    return _SHUTDOWN_HWND[0] is not None
+
+
+def shutdown_requested():
+    """后台循环用它判断是否该退出了。"""
+    return _SHUTDOWN_EVENT.is_set()
+
+
+def install_shutdown_handler():
+    """挂上关机通知窗口。失败不影响主功能（最坏就是回到被强杀的老样子）。"""
+    if _shutdown_handler_installed():
+        return True
+    try:
+        from ctypes import wintypes
+
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+
+        # 必须显式声明签名：LPARAM 是有符号指针宽度整数，
+        # 不声明的话 ctypes 会把系统消息里的原始指针当 Python int 转换，
+        # 抛 OverflowError（"int too long to convert"），窗口过程直接失效。
+        user32.DefWindowProcW.argtypes = [
+            wintypes.HWND, ctypes.c_uint, wintypes.WPARAM, wintypes.LPARAM]
+        user32.DefWindowProcW.restype = ctypes.c_long
+        user32.CreateWindowExW.argtypes = [
+            wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD,
+            ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+            wintypes.HWND, wintypes.HMENU, wintypes.HINSTANCE, wintypes.LPVOID]
+        user32.CreateWindowExW.restype = wintypes.HWND
+        user32.PostMessageW.argtypes = [
+            wintypes.HWND, ctypes.c_uint, wintypes.WPARAM, wintypes.LPARAM]
+
+        WM_QUERYENDSESSION = 0x0011
+        WM_ENDSESSION = 0x0016
+        HWND_MESSAGE = wintypes.HWND(-3)
+
+        WNDPROC = ctypes.WINFUNCTYPE(
+            ctypes.c_long, wintypes.HWND, ctypes.c_uint,
+            wintypes.WPARAM, wintypes.LPARAM)
+
+        class WNDCLASS(ctypes.Structure):
+            _fields_ = [
+                ("style", ctypes.c_uint),
+                ("lpfnWndProc", WNDPROC),
+                ("cbClsExtra", ctypes.c_int),
+                ("cbWndExtra", ctypes.c_int),
+                ("hInstance", wintypes.HINSTANCE),
+                ("hIcon", wintypes.HICON),
+                ("hCursor", wintypes.HANDLE),
+                ("hbrBackground", wintypes.HBRUSH),
+                ("lpszMenuName", wintypes.LPCWSTR),
+                ("lpszClassName", wintypes.LPCWSTR),
+            ]
+
+        def proc(hwnd, msg, wparam, lparam):
+            if msg == WM_QUERYENDSESSION:
+                # 允许关机继续；同时记下我们该退出了
+                _SHUTDOWN_EVENT.set()
+                log("收到系统关机通知，准备优雅退出")
+                return 1
+            if msg == WM_ENDSESSION:
+                _SHUTDOWN_EVENT.set()
+                return 0
+            return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
+
+        cls_name = "NostationPalShutdownSink"
+        ready = threading.Event()
+        result = [False]
+
+        def sink_thread():
+            """在**本线程**里建窗并跑消息循环。
+
+            这是必须的：Windows 把窗口消息投递给"创建该窗口的线程"的消息队列，
+            所以建窗和 GetMessage 必须在同一个线程里。之前把建窗放在主线程、
+            消息循环放在子线程，结果 PostMessage 发过去永远收不到
+            （SendMessage 跨线程倒是能跑，但系统关机走的是 PostMessage 路径）。
+            """
+            try:
+                wc = WNDCLASS()
+                wc.lpfnWndProc = WNDPROC(proc)   # 引用要保住，函数内局部即可
+                wc.lpszClassName = cls_name
+                wc.hInstance = kernel32.GetModuleHandleW(None)
+                if not user32.RegisterClassW(ctypes.byref(wc)):
+                    err = kernel32.GetLastError()
+                    if err != 1410:              # 1410 = 类已注册，可继续
+                        log("注册关机通知窗口失败（错误 {}）".format(err))
+                        ready.set()
+                        return
+                hwnd = user32.CreateWindowExW(
+                    0, cls_name, cls_name, 0, 0, 0, 0, 0, HWND_MESSAGE, None,
+                    wc.hInstance, None)
+                if not hwnd:
+                    log("创建关机通知窗口失败（错误 {}）".format(
+                        kernel32.GetLastError()))
+                    ready.set()
+                    return
+                globals()["_SHUTDOWN_WNDPROC_REF"] = wc.lpfnWndProc
+                _SHUTDOWN_HWND[0] = hwnd
+                result[0] = True
+                ready.set()
+
+                msg = wintypes.MSG()
+                while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
+                    user32.TranslateMessage(ctypes.byref(msg))
+                    user32.DispatchMessageW(ctypes.byref(msg))
+            except Exception as exc:
+                log("关机通知线程异常: {}".format(exc))
+                ready.set()
+
+        threading.Thread(target=sink_thread, name="shutdown-sink",
+                         daemon=True).start()
+        ready.wait(3.0)
+        if not result[0]:
+            return False
+        log("已挂上系统关机通知（关机时可优雅退出，不再残留临时目录）")
+        return True
+    except Exception as exc:
+        log("安装关机通知失败: {}".format(exc))
+        return False
 
 
 # ---------------------------------------------------------------------------
