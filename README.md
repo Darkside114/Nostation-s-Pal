@@ -3,10 +3,10 @@
 > **Nostation Auto Sync Companion** — 让 Matrix Lab NOSTATION 的 hub 时间在每次开机时自动校准，不用再手动打开网页。
 
 <p>
-  <img alt="version" src="https://img.shields.io/badge/version-1.5.4-2ea44f">
+  <img alt="version" src="https://img.shields.io/badge/version-1.5.5-2ea44f">
   <img alt="platform" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4">
   <img alt="python" src="https://img.shields.io/badge/python-3.12-3776ab">
-  <img alt="license" src="https://img.shields.io/badge/license-Custom%20(non--commercial)-lightgrey">
+  <img alt="license" src="https://img.shields.io/badge/license-Freeware%20(not%20open%20source)-lightgrey">
   <img alt="author" src="https://img.shields.io/badge/By-Darkside-8957e5">
 </p>
 
@@ -234,7 +234,25 @@ Get-Content status.txt
 
 ## 许可
 
-**禁止商业使用、禁止修改与再分发衍生版本、保留署名。**
-详见 [LICENSE](LICENSE) 与 [LICENSE_TERMS.txt](LICENSE_TERMS.txt)。
+**这是免费软件，但不是开源软件。** 这两件事经常被混为一谈，所以在这里讲清楚：
+
+| | 本软件 |
+| --- | --- |
+| 免费使用 | ✅ 免费提供给 NOSTATION 设备所有者 |
+| 自由转发原始 exe | ✅ 可以 |
+| 查看源码 | ✅ 源码公开在本仓库 |
+| **修改 / 制作衍生版本** | ❌ **禁止** |
+| **反向工程 / 反编译** | ❌ **禁止** |
+| **商业销售 / 租借 / 捆绑推广** | ❌ **禁止** |
+| **去除版权与署名标识** | ❌ **禁止** |
+
+[开源许可](https://opensource.org/osd)要求允许他人自由使用、修改和再分发，
+而本软件的条款明确禁止修改与衍生版本，**因此二者不相容 —— 本软件不是开源软件**。
+
+源码公开的目的是让人能**审阅代码、自行构建**（比如担心未签名 exe 的安全性时），
+这不构成开源授权。
+
+完整条款见 [LICENSE](LICENSE) 与 [LICENSE_TERMS.txt](LICENSE_TERMS.txt)，
+也与软件首次启动时弹出的条款完全一致。
 
 Copyright © 2026 **Darkside**. All Rights Reserved.

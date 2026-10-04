@@ -37,10 +37,12 @@ import traceback
 
 APP_TITLE = "Nostation 自动同步伴侣"
 APP_NAME_EN = "Nostation Auto Sync Companion"
-APP_VERSION = "1.5.4"
-APP_BUILD = 154
+APP_VERSION = "1.5.5"
+APP_BUILD = 155
 # 版本历史（每次迭代都要改 APP_VERSION / APP_BUILD 并在这里记一行）
 CHANGELOG = [
+    ("1.5.5", "「关于」与许可条款里写明：本软件免费但【不是开源软件】，"
+              "并显示项目主页；修正图标尺寸预览图的排版错位"),
     ("1.5.4", "修复桌面上一直挂着一个 420×200 启动画面：PyInstaller 的闪屏在"
               "无界面模式（--watch 后台同步等）里也会创建，而之前只在界面模式关闭它。"
               "后台同步进程是开机自启、常驻的，所以那个闪屏会永久留在桌面"),
@@ -77,8 +79,8 @@ COMPANY = "Darkside"
 COPYRIGHT_YEAR = "2026"
 COPYRIGHT = "Copyright (C) {} {}  All Rights Reserved.".format(COPYRIGHT_YEAR, AUTHOR)
 COPYRIGHT_CN = "版权所有 © {} {}，保留所有权利".format(COPYRIGHT_YEAR, AUTHOR)
-HOMEPAGE = ""          # 有官网/发布页就填上，会显示在"关于"里
-CONTACT = ""           # 反馈邮箱/QQ 等，可留空
+HOMEPAGE = "https://github.com/Darkside114/nostation-hub-sync"
+CONTACT = ""            # 反馈邮箱/QQ 等，可留空
 EDITION = "完整版"
 # 许可条款正文。
 # 注意：这里的换行是"排版换行"，必须控制在约 70 个显示列以内（中文按 2 列计），
@@ -101,7 +103,13 @@ LICENSE_TERMS = """一、授权范围
     本软件只修改设备时钟，不会改动按键映射、灯光设置或屏幕内容，
     也不会联网上传任何数据。
 
-四、权利保留
+四、关于"开源"
+    本软件是【免费软件】，但【不是开源软件】。开源许可要求允许他人
+    自由使用、修改与再分发，而本条款第（二）部分明确禁止修改与
+    制作衍生版本，因此二者不相容。源码公开在项目主页，目的是让
+    使用者可以审阅代码、自行构建，并不构成开源授权。
+
+五、权利保留
     本软件的一切权利归作者 %s 所有。本条款未明确授予的
     权利均予保留。""" % AUTHOR
 
@@ -500,7 +508,9 @@ def about_text():
         "      网页版 Sync 按钮使用相同的 HID 协议）。",
         "",
         "隐私：本软件不联网、不上传任何数据，只与本机 USB HID 设备通信。",
-        "授权：{}（详见首次启动时的许可条款）".format(EDITION),
+        "授权：{}，免费使用；但【不是开源软件】——许可条款禁止".format(EDITION),
+        "      修改、反向工程与再分发衍生版本，版权归作者所有。",
+        "      源码公开在项目主页，仅供查阅与自行构建。",
         "",
         "版本历史：",
     ]

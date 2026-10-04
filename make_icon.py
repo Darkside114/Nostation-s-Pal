@@ -49,6 +49,7 @@ PREVIEW_PATH = os.path.join(HERE, "assets", "icon-preview.png")
 
 SIZES = (16, 24, 32, 48, 64, 128, 256)
 DETAIL_MIN = 48            # >= 该尺寸使用完整细节版; 更小走简化版
+PREVIEW_DISPLAY_PX = 160   # 预览图里每个尺寸统一显示成这么大（否则格子宽窄不一、错位）
 TICK_MIN = 128             # >= 该尺寸才画四点刻度
 SPARKLE_MIN = 256          # 仅 256 画右上角闪光点缀
 
@@ -554,12 +555,26 @@ def _font(px: int):
     return ImageFont.load_default()
 
 
+def _display_frame(frame, target):
+    """把某一尺寸的帧统一缩放到预览用的显示尺寸。
+
+    16/24/32/48/64 用 NEAREST —— 放大后就是它在屏幕上真实的像素样子，
+    能如实暴露小尺寸的清晰度（用平滑插值会把小图"美化"，看着清楚其实不是）。
+    128 及以上用 LANCZOS 缩小，画质更好。
+    """
+    if frame.width == target:
+        return frame
+    resample = Image.LANCZOS if frame.width > target else Image.NEAREST
+    return frame.resize((target, target), resample)
+
+
 def build_preview(path: str, frames: dict) -> Image.Image:
     light = (0xF4, 0xF6, 0xF9)
     dark = (0x17, 0x1B, 0x22)
     header_h, label_h, pad = 104, 40, 28
-    cell_w = 252
-    row_h = 306
+    display_px = PREVIEW_DISPLAY_PX          # 每个尺寸统一显示成这么大
+    cell_w = display_px + 8 * pad            # 每格一样宽 —— 保证两行对齐
+    row_h = display_px + 62 + 12 + 56        # 顶部 62 放标题，底部 56 放注释
     width = pad * 2 + cell_w * len(SIZES)
     height = header_h + (label_h + row_h) * 2 + pad
 
@@ -574,8 +589,8 @@ def build_preview(path: str, frames: dict) -> Image.Image:
     d.text((pad, 20), "Nostation Auto Sync Companion  -  companion.ico",
            font=f_title, fill=(0x11, 0x17, 0x20))
     d.text((pad, 66),
-           "Size proof on light and dark backgrounds.  16 / 24 / 32 use a dedicated "
-           "simplified drawing; 48 px and up use the full-detail render.",
+           "Size proof on light and dark backgrounds.  All sizes shown at the same "
+           "display size; 16 / 24 / 32 use a simplified drawing, 48 px and up full detail.",
            font=f_sub, fill=(0x55, 0x60, 0x70))
 
     rows = [
@@ -590,12 +605,14 @@ def build_preview(path: str, frames: dict) -> Image.Image:
         d.rectangle([0, yy, width, yy + row_h], fill=bg)
         for ci, s in enumerate(SIZES):
             cx = pad + ci * cell_w + cell_w // 2
-            icon = frames[s]
+            shown = _display_frame(frames[s], display_px)
             d.text((cx, yy + 18), f"{s} x {s}", font=f_size, fill=fg, anchor="ma")
-            sheet.paste(icon, (cx - s // 2, yy + 62), icon)
-            d.text((cx, yy + 202), "simplified" if s < DETAIL_MIN else "full detail",
+            sheet.paste(shown, (cx - display_px // 2, yy + 62), shown)
+            d.text((cx, yy + 62 + display_px + 14),
+                   "simplified" if s < DETAIL_MIN else "full detail",
                    font=f_note, fill=fg, anchor="ma")
-            d.text((cx, yy + 226), f"native {s}px", font=f_note, fill=fg, anchor="ma")
+            d.text((cx, yy + 62 + display_px + 38),
+                   f"native {s}px", font=f_note, fill=fg, anchor="ma")
         d.line([0, yy + row_h, width, yy + row_h], fill=chip, width=2)
 
     sheet.save(path)
