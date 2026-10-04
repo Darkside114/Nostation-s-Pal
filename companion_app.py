@@ -37,10 +37,15 @@ import traceback
 
 APP_TITLE = "Nostation 自动同步伴侣"
 APP_NAME_EN = "Nostation Auto Sync Companion"
-APP_VERSION = "1.6.0"
-APP_BUILD = 160
+APP_VERSION = "1.7.0"
+APP_BUILD = 170
 # 版本历史（每次迭代都要改 APP_VERSION / APP_BUILD 并在这里记一行）
 CHANGELOG = [
+    ("1.7.0", "新增「怎么用」帮助页，逐个说明四个按钮、指示灯、状态区、日志含义与"
+              "常见问题；「重新检查」会写明本次检查结果，不再点了没反应；"
+              "按钮下方加引导提示，界面文案去掉对普通用户无意义的设备 ID 与术语"),
+    ("1.6.0", "改为 MIT 许可证开源发布；许可条款与「关于」同步改写，"
+              "exe 属性里的版权信息也改为 MIT License"),
     ("1.5.5", "「关于」与许可条款里写明：本软件免费但【不是开源软件】，"
               "并显示项目主页；修正图标尺寸预览图的排版错位"),
     ("1.5.4", "修复桌面上一直挂着一个 420×200 启动画面：PyInstaller 的闪屏在"
@@ -459,6 +464,154 @@ def license_message():
     return "\n".join(head + [LICENSE_TERMS] + tail)
 
 
+def help_text():
+    """使用说明：每个按钮/指示灯是干什么的（面向第一次用的人）。"""
+    return """\
+这个软件只做一件事：让你的 NOSTATION hub 每次开机自动校准时间，
+不用再手动打开 config.matrix-lab.com 网页点同步。
+
+──────────────────────────────────────────
+一、四个按钮是干什么的
+──────────────────────────────────────────
+【开启 Nostation 开机同步】——最常用的按钮，点一次就好
+    作用：把开机自启装到系统里（写入当前用户的启动项），
+          并立刻启动后台同步进程。
+    结果：以后每次开机自动校时；现在也会马上同步一次。
+    提示：点一次就够，不需要每次开机都点。重复点不会出问题。
+
+【停止同步】——想彻底关掉时点它
+    作用：清理全部自启项（注册表项、启动文件夹、计划任务），
+          并结束后台同步进程。
+    结果：程序不再自动校时；清理完会逐项核验，确认没有残留。
+    提示：设备没插着也能点（故意设计成这样，否则拔了设备就关不掉）。
+
+【立即同步一次】——手动校时
+    作用：马上把本机时间写入设备一次。
+    结果：运行记录里会多一行「校时 …… 成功」。
+    提示：适合刚开机还没触发自动同步、或想确认设备通不通的时候。
+
+【重新检查】——刷新界面显示的状态
+    作用：重新核对五件事并显示出来：① 设备插没插 ② 开机自启在不在
+          ③ 启动文件夹里有没有 ④ 有没有开机前校时任务 ⑤ 后台同步在不在跑。
+    结果：运行记录里会写一行「手动重新检查：✓…✗…」，一眼能看出哪项不对。
+    提示：界面每 3 秒会自动检查「设备插拔」，但另外几项不会自动重查；
+          你手动改过自启、或觉得显示和实际不符时，点它。
+
+──────────────────────────────────────────
+二、上面那个状态区怎么看
+──────────────────────────────────────────
+左边的小圆点（指示灯）
+    绿色 = 后台同步进程在运行      红色 = 后台同步没在运行
+    —— 它反映的是「同步程序在不在跑」，不是「设备插没插」。
+
+设备：
+    已连接（NOSTATION）            设备正常，可以校时
+    未检测到 NOSTATION（请检查 USB 连接）
+                                  没找到设备；此时下面两个需要设备的
+                                  按钮会变灰，点不动
+
+开机自动同步：
+    已开启（开机自启）· 后台同步中  一切正常
+    未开启                          点「开启…」按钮即可
+    已开启（开机自启(路径已失效…)）  程序被挪过位置，运行一次会自动修正
+
+──────────────────────────────────────────
+三、为什么有的按钮是灰的
+──────────────────────────────────────────
+没检测到 NOSTATION 时，「开启开机同步」和「立即同步一次」会变灰不能点，
+这是故意的 —— 防止误操作。插好设备后 3 秒内会自动恢复，也可以点
+「重新检查」立即恢复。
+
+「停止同步」任何时候都能点：设备拔了、收起来了，你仍然要能关掉开机自启。
+
+──────────────────────────────────────────
+四、运行记录里的那几行是什么意思
+──────────────────────────────────────────
+校时 2026-10-05 周一 09:14:03 -> 1/1 成功 (… -> 已同步)
+    成功把本机时间写进设备。1/1 表示找到 1 台 NOSTATION、成功 1 台。
+
+拒绝设备 4d58:0103 100NG Edition：产品 ID 不是 NOSTATION (5748)
+    这是正常现象，不用担心。你机器上还有别的 Matrix Lab 设备时，
+    程序会检查它、发现不是 NOSTATION 就拒绝操作，并记录一行作为证明：
+    「本程序只动 NOSTATION 这一台」。同一台设备每次运行只记一条。
+
+未检测到连接（设备已断开），操作按钮已置灰
+    设备被拔掉了，程序自动暂停校时，不会报错。
+
+手动重新检查（09:20:11）：✓ 设备已连接 · ✓ 开机自启 · …
+    你点了「重新检查」的结果，✓ 正常、✗ 有问题、— 表示该项本来就没设置。
+
+每次打开程序都会清空旧日志，只留本次运行的内容。
+
+──────────────────────────────────────────
+五、常见问题
+──────────────────────────────────────────
+问：点了「开启开机同步」之后，我还需要留着这个窗口吗？
+答：不用。关掉窗口不影响同步，后台进程会继续工作。
+
+问：怎么知道它真的在自动同步？
+答：看指示灯是不是绿色；或者过一会儿点「重新检查」，
+    运行记录里会有新的「校时 …… 成功」。（默认每 30 分钟校一次）
+
+问：提示「未检测到连接」怎么办？
+答：① 确认 USB 线插好、hub 已开机 ② 换一个 USB 口试试
+    ③ 点「重新检查」 ④ 还是不行就看「帮助 → 未检测到连接时怎么办」。
+
+问：我把程序挪到别的文件夹 / 改了名字，需要重新设置吗？
+答：不需要。运行一次就会自动把开机自启改到新位置。
+
+问：怎么彻底卸载？
+答：先点「停止同步」，再删掉这个 exe 就行。程序不写系统目录，
+    数据只在 %LOCALAPPDATA%\\NostationSync（可以直接删）。
+
+问：它会不会偷偷联网、上传数据？
+答：不会。全程只与本机 USB 设备通信，不访问网络。
+
+问：运行记录里老出现「拒绝设备」，是不是有问题？
+答：不是。见上面第四节。程序只操作 NOSTATION，其它设备一律拒绝并留记录。
+"""
+
+
+def show_text_dialog(parent, title, body, width=78, height=32):
+    """用一个可滚动、可复制的对话框显示长文本（比 MessageBox 好排版）。"""
+    import tkinter as tk
+    from tkinter import ttk
+
+    win = tk.Toplevel(parent) if parent is not None else tk.Tk()
+    win.title(title)
+    try:
+        win.transient(parent)
+    except Exception:
+        pass
+    try:
+        win.geometry("{}x{}".format(int(width * 9.6), int(height * 20)))
+    except Exception:
+        pass
+
+    frame = ttk.Frame(win, padding=10)
+    frame.pack(fill="both", expand=True)
+    txt = tk.Text(frame, wrap="word", font=("Microsoft YaHei UI", 10),
+                  background="#fbfbfb", relief="flat", padx=8, pady=6)
+    sb = ttk.Scrollbar(frame, orient="vertical", command=txt.yview)
+    txt.configure(yscrollcommand=sb.set)
+    txt.pack(side="left", fill="both", expand=True)
+    sb.pack(side="right", fill="y")
+    txt.insert("1.0", body)
+    txt.configure(state="disabled")
+
+    bar = ttk.Frame(win, padding=(10, 0, 10, 10))
+    bar.pack(fill="x")
+    ttk.Button(bar, text="关闭", command=win.destroy).pack(side="right")
+    try:
+        win.bind("<Escape>", lambda e: win.destroy())
+        win.focus_force()
+    except Exception:
+        pass
+    if parent is None:
+        win.mainloop()
+    return win
+
+
 def show_license():
     """显示 UAC 无关的许可对话框。返回 MessageBox 结果码，失败返回 None。"""
     try:
@@ -588,6 +741,22 @@ def enumerate_raw_hid(use_cache=True):
 def describe(d):
     name = d.get("product_string") or KNOWN_NAMES.get(d["product_id"], "未知设备")
     return "{:04x}:{:04x} {}".format(d["vendor_id"], d["product_id"], name)
+
+
+def hub_brief():
+    """给界面用的一句话设备描述。
+
+    界面上不显示 4d58:5748 这种 ID —— 对普通用户没意义又容易困惑；
+    完整 ID 仍会写进日志，需要排查问题时看日志即可。
+    """
+    try:
+        targets = pick_targets()
+    except Exception:
+        targets = []
+    if not targets:
+        return ""
+    name = targets[0].get("product_string") or "NOSTATION"
+    return name.replace("NOSTATION ", "NOSTATION ").strip()
 
 
 NOSTATION_PRODUCT_TAG = "NOSTATION"
@@ -1835,10 +2004,11 @@ class App:
         self.lamp.grid(row=0, column=0, rowspan=2, padx=(2, 8))
         self.lamp_id = self.lamp.create_oval(2, 2, 14, 14, fill="#c0392b", outline="")
 
-        self.hub_label = ttk.Label(box, text="NOSTATION: 检测中…",
+        self.hub_label = ttk.Label(box, text="设备：检测中…",
                                    font=("Microsoft YaHei UI", 10, "bold"))
         self.hub_label.grid(row=0, column=1, sticky="w")
-        self.auto_label = ttk.Label(box, text="开机同步: 检测中…", font=("Microsoft YaHei UI", 10))
+        self.auto_label = ttk.Label(box, text="开机自动同步：检测中…",
+                                    font=("Microsoft YaHei UI", 10))
         self.auto_label.grid(row=1, column=1, sticky="w", pady=(4, 0))
         box.columnconfigure(1, weight=1)
 
@@ -1848,16 +2018,28 @@ class App:
         self.warn_label.grid(row=2, column=1, sticky="w", pady=(6, 0))
 
         btns = ttk.Frame(outer)
-        btns.pack(fill="x", pady=12)
-        self.btn_start = ttk.Button(btns, text="开启 Nostation 开机同步", command=self.on_start)
+        btns.pack(fill="x", pady=(12, 4))
+        self.btn_start = ttk.Button(btns, text="开启 Nostation 开机同步",
+                                    command=self.on_start)
         self.btn_start.pack(side="left")
         self.btn_stop = ttk.Button(btns, text="停止同步", command=self.on_stop)
         self.btn_stop.pack(side="left", padx=8)
         self.btn_sync = ttk.Button(btns, text="立即同步一次", command=self.on_sync_once)
         self.btn_sync.pack(side="left")
-        self.btn_refresh = ttk.Button(btns, text="刷新状态", command=self.refresh)
+        self.btn_refresh = ttk.Button(btns, text="重新检查", command=self.refresh)
         self.btn_refresh.pack(side="left", padx=8)
         ttk.Button(btns, text="关于", command=self.on_about).pack(side="right")
+
+        # 每个按钮是干什么的 —— 放在按钮正下方，点一下就有说明
+        tip = ttk.Frame(outer)
+        tip.pack(fill="x", pady=(0, 8))
+        # 先放右边的按钮并 pack，再放左边文字，避免文字过长把按钮挤没
+        ttk.Button(tip, text="怎么用", command=self.on_help).pack(side="right")
+        ttk.Label(
+            tip,
+            text="第一次用只需点最左边的「开启 Nostation 开机同步」。",
+            foreground="#5a6673", font=("Microsoft YaHei UI", 9),
+        ).pack(side="left")
 
         # 需要 hub 在线才能用的按钮（「停止同步」不在此列，断连时也要能停）
         self.hub_buttons = (self.btn_start, self.btn_sync)
@@ -1900,6 +2082,8 @@ class App:
         tk = self.tk
         menubar = tk.Menu(self.root)
         m_help = tk.Menu(menubar, tearoff=0)
+        m_help.add_command(label="怎么用（每个按钮是干什么的）", command=self.on_help)
+        m_help.add_separator()
         m_help.add_command(label="关于 {}".format(APP_TITLE), command=self.on_about)
         m_help.add_command(label="查看许可条款", command=self.on_license)
         m_help.add_separator()
@@ -1976,7 +2160,45 @@ class App:
 
     # ------------------------------------------------------------ 状态刷新 --
     def refresh(self):
-        self.run_async(self._collect_state, self._apply_state)
+        """重新检查全部状态（比自动轮询查得更全）。
+
+        自动轮询（tick，每 3 秒）只看设备插拔和日志；这里还会重新核对
+        开机自启、启动文件夹、开机前任务、后台进程，并把结果写进运行记录，
+        否则用户点完看不到任何反馈，会以为按钮没反应。
+        """
+        self.set_status("正在重新检查…")
+        self.run_async(self._collect_state, self._on_state_refreshed)
+
+    def _on_state_refreshed(self, state):
+        self._apply_state(state)
+        if not isinstance(state, dict):
+            return
+        items = []
+        items.append("✓ 设备已连接" if state.get("hub") else "✗ 未检测到设备")
+        if state.get("registry"):
+            items.append("✓ 开机自启" if state.get("registry_ok")
+                         else "✗ 开机自启(路径已失效)")
+        else:
+            items.append("✗ 开机自启未设置")
+        items.append("✓ 启动文件夹项" if state.get("shortcut") else "— 启动文件夹无项")
+        items.append("✓ 开机前校时任务" if state.get("task") else "— 无开机前校时任务")
+        items.append("✓ 后台同步运行中" if state.get("watcher") else "✗ 后台同步未运行")
+        stamp = datetime.datetime.now().strftime("%H:%M:%S")
+        line = "手动重新检查（{}）：{}".format(stamp, " · ".join(items))
+        self.append_log(line)
+        log("界面：" + line)
+        detail = state.get("hub_name") or ""
+        if detail:
+            self.append_log("　设备：{}".format(detail))
+        extra = []
+        if state.get("task"):
+            extra.append("已注册「开机前校时」计划任务")
+        if state.get("shortcut"):
+            extra.append("启动文件夹里有快捷方式")
+        if not state.get("watcher"):
+            extra.append("后台同步未运行，点「开启开机同步」可重新拉起")
+        if extra:
+            self.append_log("　" + "；".join(extra))
 
     def _collect_state(self):
         targets = []
@@ -1991,6 +2213,7 @@ class App:
         return {
             "hub": bool(targets),
             "hub_name": describe(targets[0]) if targets else "",
+            "hub_brief": hub_brief() if targets else "",
             "registry": bool(reg_target),
             "registry_ok": bool(reg_target) and exe_path().lower() in reg_target.lower(),
             "task": task_exists(),
@@ -2005,35 +2228,38 @@ class App:
         self.lamp.itemconfigure(self.lamp_id, fill="#27ae60" if running else "#c0392b")
 
         if state["hub"]:
-            self.hub_label.configure(text="NOSTATION: 已连接  ({})".format(state["hub_name"]),
+            brief = state.get("hub_brief") or "NOSTATION"
+            self.hub_label.configure(text="设备：已连接（{}）".format(brief),
                                      foreground="#1e8449")
         else:
-            self.hub_label.configure(text="NOSTATION: 未检测到连接", foreground="#c0392b")
+            self.hub_label.configure(text="设备：未检测到 NOSTATION（请检查 USB 连接）",
+                                     foreground="#c0392b")
 
         how = []
         if state["registry"]:
-            how.append("注册表启动项" + ("" if state["registry_ok"] else "(路径已失效)"))
+            how.append("开机自启" if state["registry_ok"] else "开机自启(路径已失效，运行一次即可自动修正)")
         if state["shortcut"]:
             how.append("启动文件夹")
         if state["task"]:
-            how.append("计划任务")
+            how.append("开机前校时任务")
         configured = bool(how)
 
         if running:
             self.auto_label.configure(
-                text="开机同步: 已开启（{}）· 后台进程运行中".format(" + ".join(how) or "仅有后台进程"),
+                text="开机自动同步：已开启（{}）· 后台同步中".format(
+                    " + ".join(how) or "仅后台进程在运行"),
                 foreground="#1e8449")
         else:
-            extra = "（已配置自启动，重启后生效）" if configured else ""
-            self.auto_label.configure(text="开机同步: 未开启" + extra, foreground="#c0392b")
+            extra = "（已设置开机自启，下次开机生效）" if configured else ""
+            self.auto_label.configure(
+                text="开机自动同步：未开启" + extra, foreground="#c0392b")
 
         # 与设备相关的操作按钮：没连上就置灰
         self.hub_online = state["hub"]
         self._apply_hub_gate()
 
         if state["hub"]:
-            self.set_status("状态更新于 {}  ·  免安装单文件".format(
-                datetime.datetime.now().strftime("%H:%M:%S")))
+            self.set_status("状态正常  ·  免安装单文件，删除程序即可完全卸载")
         else:
             self.set_status("未检测到连接：请确认 NOSTATION 已通过 USB 连接到本机  ·  "
                             "已自动暂停校时")
@@ -2225,6 +2451,19 @@ class App:
             self.refresh()
 
         self.run_async(work, done)
+
+    def on_help(self):
+        """使用说明：每个按钮与状态的含义。"""
+        self.append_log("打开「怎么用」使用说明")
+        try:
+            show_text_dialog(self.root, "怎么用  ·  {}".format(APP_TITLE), help_text())
+        except Exception as exc:
+            log("帮助对话框失败: {}".format(exc))
+            try:
+                ctypes.windll.user32.MessageBoxW(
+                    0, help_text(), "怎么用  ·  {}".format(APP_TITLE), 0x40 | 0x40000)
+            except Exception:
+                pass
 
     def on_about(self):
         self.append_log("打开「关于」对话框")
