@@ -38,10 +38,14 @@ import traceback
 
 APP_TITLE = "Nostation 自动同步伴侣"
 APP_NAME_EN = "Nostation Auto Sync Companion"
-APP_VERSION = "1.9.0"
-APP_BUILD = 190
+APP_VERSION = "1.10.0"
+APP_BUILD = 1100
 # 版本历史（每次迭代都要改 APP_VERSION / APP_BUILD 并在这里记一行）
 CHANGELOG = [
+    ("1.10.0", "许可条款改动后会重新弹出确认：条款有了独立的版本号，"
+               "只要条款文字有变，已同意的老用户下次打开界面会读到新条款并再次确认"
+               "（只升软件版本、不改条款时不会打扰）。后台同步不受影响，"
+               "即使还没点同意，开机校时也照常进行"),
     ("1.9.0", "许可条款新增「第三方工具声明」：明确本软件是独立第三方工具，"
               "与 Matrix Lab 无任何隶属、合作、赞助、授权或背书关系，"
               "并说明相关商标归属；条款结尾加入「欢迎去项目主页点 Star」的引导"),
@@ -98,6 +102,17 @@ COPYRIGHT_CN = "版权所有 © {} {}，依 MIT 许可证发布".format(COPYRIGH
 HOMEPAGE = "https://github.com/Darkside114/nostation-hub-sync"
 CONTACT = ""            # 反馈邮箱/QQ 等，可留空
 EDITION = "完整版"
+# 许可条款的版本号，用**条款最后修改日期**，与软件版本号无关。
+#
+# 规则：只要改动了下面的 LICENSE_TERMS 文字，就把这里改成当天日期
+#      （例如 "2026-10-05"）。已同意的用户下次打开界面会重新读到并再次确认。
+#      只升软件版本、不动条款时**不要**改这里 —— 否则用户每升一个小版本
+#      都要点一次同意，很烦，而且会让"条款变更"这个信号失去意义。
+#
+# 为什么用日期而不是 1.1.0 这类编号：早期版本误把软件版本号
+# （如 1.8.1）存进了配置的 license_version 字段，若再用相似的点分编号
+# 会出现"1.1.0 和 1.8.1 谁更新"的歧义。日期制不可能混淆。
+LICENSE_VERSION = "2026-10-05"
 # 许可条款正文（MIT 开源许可证）。
 # 注意：这里的换行是"排版换行"，必须控制在约 70 个显示列以内（中文按 2 列计），
 # 否则在对话框里会被二次折行、留下"灯光设置…"这种孤儿行。改文字时请保持同样宽度。
@@ -473,16 +488,31 @@ def save_config(cfg):
 # ---------------------------------------------------------------------------
 
 
-def license_message():
-    """首次运行的许可对话框正文（条款只在正文里出现一次）。"""
+def license_message(is_update=False):
+    """许可对话框正文（条款只在正文里出现一次）。
+
+    is_update=True 表示用户以前同意过、这次是因为**条款更新**重新确认，
+    开头会说明原因，免得用户以为程序坏了。
+    """
     head = [
         "感谢使用 {}".format(APP_TITLE),
         "{}   v{}    {}".format(APP_NAME_EN, APP_VERSION, EDITION),
         COPYRIGHT_CN,
         "",
-        "开始使用前，请阅读并同意以下许可条款：",
-        "",
     ]
+    if is_update:
+        head += [
+            "【许可条款已更新】",
+            "本软件的许可条款有新版本（条款版本 {}）。".format(LICENSE_VERSION),
+            "你以前已同意过旧版本，这次需要重新阅读并确认。",
+            "主要变化见下方条款；软件功能与你的设置都不受影响。",
+            "",
+        ]
+    else:
+        head += [
+            "开始使用前，请阅读并同意以下许可条款：",
+            "",
+        ]
     tail = [
         "",
         "────────────────────────────────────────",
@@ -910,16 +940,21 @@ def spawn_self_replace(new_exe, log_file=None, no_restart=False):
     return True, helper
 
 
-def show_license():
-    """显示 UAC 无关的许可对话框。返回 MessageBox 结果码，失败返回 None。"""
+def show_license(is_update=False):
+    """显示 UAC 无关的许可对话框。返回 MessageBox 结果码，失败返回 None。
+
+    is_update=True 用于「条款更新后重新确认」，标题会写明，避免用户以为程序异常。
+    """
     try:
         MB_YESNO = 0x04
         MB_ICONINFORMATION = 0x40
         MB_TOPMOST = 0x40000
         IDYES = 6
+        title = "{} v{}  ·  许可条款{}".format(
+            APP_TITLE, APP_VERSION, "（已更新，请重新确认）" if is_update else "")
         # MessageBox 文本上限约 64KB，这里远低于该值
         rc = ctypes.windll.user32.MessageBoxW(
-            0, license_message(), "{} v{}  ·  许可条款".format(APP_TITLE, APP_VERSION),
+            0, license_message(is_update=is_update), title,
             MB_YESNO | MB_ICONINFORMATION | MB_TOPMOST)
         return rc
     except Exception:
@@ -928,23 +963,37 @@ def show_license():
 
 
 def license_ok():
-    """首次运行需同意条款；已同意过就直接返回 True。"""
+    """检查许可条款是否已同意（按**条款版本**判断，不是软件版本）。
+
+    规则：
+    - 全新安装（配置里没有条款版本）→ 弹出来读一遍并同意
+    - 条款版本变了（新增/修改了条款）→ **重新弹一次**，让老用户也读到新条款
+    - 条款版本没变 → 直接放行，不打扰用户
+
+    注意：只有图形界面（run_gui）会调这个函数；后台同步进程（--watch）
+    不检查许可，所以即使条款更新了、用户还没点同意，开机校时也不会中断。
+    """
     cfg = load_config()
-    if cfg.get("license_accepted"):
+    accepted = cfg.get("license_version")
+    if cfg.get("license_accepted") and accepted == LICENSE_VERSION:
         return True
-    rc = show_license()
+
+    is_update = bool(cfg.get("license_accepted"))
+    rc = show_license(is_update=is_update)
     if rc is None:
         # 无法弹窗（例如极端环境），不阻塞用户
         return True
     if rc == 6:  # IDYES
         cfg["license_accepted"] = True
         cfg["license_accepted_at"] = datetime.datetime.now().isoformat(timespec="seconds")
-        cfg["license_version"] = APP_VERSION
+        cfg["license_version"] = LICENSE_VERSION
         cfg["license_holder"] = AUTHOR
         save_config(cfg)
-        log("用户已同意许可条款 (v{})".format(APP_VERSION))
+        log("用户已同意许可条款 (条款版本 {}，软件 v{}{})".format(
+            LICENSE_VERSION, APP_VERSION,
+            "，本次为条款更新后重新确认" if is_update else ""))
         return True
-    log("用户未同意许可条款，程序退出")
+    log("用户未同意许可条款，程序退出（条款版本 {}）".format(LICENSE_VERSION))
     return False
 
 
@@ -974,7 +1023,7 @@ def about_text():
         "      Issue 或 Pull Request。",
         "",
         "版本历史：见帮助菜单「版本历史」（不在这里堆一长串）。",
-        "",
+        "条款版本：{}".format(LICENSE_VERSION),
         "程序：{}".format(exe_path()),
         "日志：{}".format(log_path()),
     ]
@@ -2983,11 +3032,12 @@ class App:
         show_about(self.root)
 
     def on_license(self):
-        """查看已同意的许可条款。"""
+        """查看已同意的许可条款（只读，不写配置）。"""
         try:
             from tkinter import messagebox
             messagebox.showinfo(
-                "许可条款  ·  {} v{}".format(APP_TITLE, APP_VERSION),
+                "许可条款  ·  {} v{}（条款版本 {}）".format(
+                    APP_TITLE, APP_VERSION, LICENSE_VERSION),
                 license_message().replace("是否同意以上条款并继续使用？",
                                           "（你已同意本条款）"),
                 parent=self.root)
