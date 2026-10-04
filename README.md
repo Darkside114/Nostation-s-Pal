@@ -3,7 +3,7 @@
 > **Nostation Auto Sync Companion** — 让 Matrix Lab NOSTATION 的 hub 时间在每次开机时自动校准，不用再手动打开网页。
 
 <p>
-  <img alt="version" src="https://img.shields.io/badge/version-1.8.2-2ea44f">
+  <img alt="version" src="https://img.shields.io/badge/version-1.9.0-2ea44f">
   <img alt="platform" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4">
   <img alt="python" src="https://img.shields.io/badge/python-3.12-3776ab">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-2ea44f">
@@ -293,9 +293,22 @@ Get-Content status.txt
 
 ## 说明
 
+### 第三方工具声明（与 Matrix Lab 无关）
+
+本项目是**独立的第三方工具**，由 Darkside 个人开发与维护。
+作者与 Matrix Lab 及其关联公司**没有任何隶属、合作、赞助、授权或背书关系**。
+
+- 「Matrix Lab」「NOSTATION」等名称与商标归各自权利人所有，本项目仅为说明兼容性而提及
+- 本项目**不是** Matrix Lab 的官方软件，也未经其审核或认可
+- 遇到问题请**勿向 Matrix Lab 寻求支持**，请在本仓库提 Issue
+
+### 隐私
+
 - 本软件**不上传任何数据**；只有「检查更新」会访问 GitHub 查版本号，且可关闭
 - 不会改动按键映射、灯光设置或屏幕内容
-- 作者与 Matrix Lab 无隶属关系，这是第三方工具
+
+> **如果这个软件帮到了你，欢迎点个 Star ⭐** —— 开源项目靠这个被人看到，
+> 也是作者继续维护的动力。右上角就有 Star 按钮。
 
 ## 自动更新
 
@@ -358,6 +371,7 @@ Copyright (c) 2026 Darkside
 - **发现 bug** 或**有功能建议** → 开一个 [Issue](../../issues)
 - **想改代码** → Fork 后提交 PR，说明改了什么、为什么改
 - 涉及设备协议的改动，请附上你的设备型号与固件版本
+- **觉得有用** → 点个 Star ⭐（对开源项目帮助很大）
 
 ## 致谢
 
