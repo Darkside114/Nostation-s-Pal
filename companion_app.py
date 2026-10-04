@@ -38,10 +38,12 @@ import traceback
 
 APP_TITLE = "Nostation 自动同步伴侣"
 APP_NAME_EN = "Nostation Auto Sync Companion"
-APP_VERSION = "1.8.1"
-APP_BUILD = 181
+APP_VERSION = "1.8.2"
+APP_BUILD = 182
 # 版本历史（每次迭代都要改 APP_VERSION / APP_BUILD 并在这里记一行）
 CHANGELOG = [
+    ("1.8.2", "更新校验改用 GitHub 提供的附件摘要，不再依赖 Release 说明里的哈希"
+              "（说明只保留版本号与更新内容，更好读）；新增 RELEASING.md 发版备忘"),
     ("1.8.1", "帮助页新增「自动更新」与「版本历史」说明，章节顺序与编号重排；"
               "修正帮助页里「不会访问网络」这句已过时的说法"),
     ("1.8.0", "新增自动更新：启动时自动向 GitHub 查询新版本，有更新会弹窗告知"
@@ -699,11 +701,12 @@ def fetch_latest_release():
         log("检查更新失败（网络或接口）: {}".format(exc))
         return None
     tag = data.get("tag_name") or ""
-    asset_url, asset_size = "", 0
+    asset_url, asset_size, asset_digest = "", 0, ""
     for a in data.get("assets") or []:
         if a.get("name") == UPDATE_ASSET_NAME:
             asset_url = a.get("browser_download_url") or ""
             asset_size = int(a.get("size") or 0)
+            asset_digest = a.get("digest") or ""
             break
     return {
         "tag": tag,
@@ -714,6 +717,9 @@ def fetch_latest_release():
         "published": data.get("published_at") or "",
         "asset_url": asset_url,
         "asset_size": asset_size,
+        # GitHub 直接给附件的 SHA256 摘要（形如 "sha256:abc..."），
+        # 用它校验完整性，就不用把哈希写进 Release 说明里了
+        "asset_digest": asset_digest,
     }
 
 
@@ -734,9 +740,23 @@ def sha256_of(path):
 
 
 def expected_sha_from_body(body):
-    """从 Release 说明里取 SHA256（我们自己发的说明里带这个值）。"""
+    """从 Release 说明正文里找 64 位十六进制哈希（兼容早期把哈希写在说明里的版本）。"""
     m = re.search(r"\b([0-9A-Fa-f]{64})\b", body or "")
     return m.group(1).upper() if m else ""
+
+
+def expected_sha(rel):
+    """期望的 SHA256（大写十六进制）。
+
+    优先用 GitHub 给附件的 digest 字段（形如 "sha256:abc..."）——
+    这样 Release 说明里不必再堆一段校验信息，说明可以只写版本号和更新内容；
+    没有 digest 时退回从说明正文里找 64 位十六进制（兼容旧 Release）。
+    """
+    digest = (rel or {}).get("asset_digest") or ""
+    m = re.search(r"([0-9A-Fa-f]{64})", digest)
+    if m:
+        return m.group(1).upper()
+    return expected_sha_from_body((rel or {}).get("body"))
 
 
 def download_update(rel, dest, progress=None):
@@ -763,14 +783,15 @@ def download_update(rel, dest, progress=None):
                         progress(done, total)
                     except Exception:
                         pass
-        # 完整性校验：有声明哈希就必须匹配
-        want = expected_sha_from_body(rel.get("body"))
+        # 完整性校验：拿到期望哈希就必须匹配
+        want = expected_sha(rel)
         got = sha256_of(tmp).upper()
         if want and want != got:
             os.remove(tmp)
             return False, "下载文件校验失败（SHA256 不匹配）\n期望 {}\n实际 {}".format(want, got)
         os.replace(tmp, dest)
-        return True, "SHA256 校验通过" if want else "已下载（该版本未提供校验值）"
+        return True, ("SHA256 校验通过" if want
+                      else "已下载（该版本未提供校验值，跳过校验）")
     except Exception as exc:
         log("下载更新失败: {}".format(traceback.format_exc()))
         return False, "下载失败：{}".format(exc)
