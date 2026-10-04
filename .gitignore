@@ -1,0 +1,32 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+
+# ---- PyInstaller 构建产物 ----
+build/
+dist/
+*.spec
+version_info.txt
+
+# ---- 由脚本生成的资源（源文件已提交，这两个是构建时产物） ----
+# 仅忽略临时产物；assets/ 下的图标与启动画面是源文件，需要提交
+
+# ---- 运行时数据 ----
+*.log
+rejected-devices.json
+watcher.pid
+config.json
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
