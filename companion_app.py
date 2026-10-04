@@ -24,6 +24,7 @@ import ctypes
 import datetime
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -37,10 +38,13 @@ import traceback
 
 APP_TITLE = "Nostation 自动同步伴侣"
 APP_NAME_EN = "Nostation Auto Sync Companion"
-APP_VERSION = "1.7.0"
-APP_BUILD = 170
+APP_VERSION = "1.8.0"
+APP_BUILD = 180
 # 版本历史（每次迭代都要改 APP_VERSION / APP_BUILD 并在这里记一行）
 CHANGELOG = [
+    ("1.8.0", "新增自动更新：启动时自动向 GitHub 查询新版本，有更新会弹窗告知"
+              "并可直接下载；下载后校验 SHA256，再自动替换旧 exe 并重新打开。"
+              "菜单新增「检查更新」可手动触发；版本历史从「关于」独立成单独窗口"),
     ("1.7.0", "新增「怎么用」帮助页，逐个说明四个按钮、指示灯、状态区、日志含义与"
               "常见问题；「重新检查」会写明本次检查结果，不再点了没反应；"
               "按钮下方加引导提示，界面文案去掉对普通用户无意义的设备 ID 与术语"),
@@ -612,6 +616,221 @@ def show_text_dialog(parent, title, body, width=78, height=32):
     return win
 
 
+def changelog_text():
+    """版本历史（独立对话框用；不再塞进「关于」里）。"""
+    lines = ["{}   {}   v{}".format(APP_TITLE, APP_NAME_EN, APP_VERSION),
+             COPYRIGHT_CN, "", "版本历史（新的在上）：", ""]
+    for ver, note in CHANGELOG:
+        lines.append("  v{}".format(ver))
+        lines.append("      {}".format(note))
+        lines.append("")
+    lines.append("每次更新都会在这里记一条。程序内可点菜单「帮助 → 检查更新」获取新版。")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# 检查更新（走 GitHub Releases 公开 API）
+# ---------------------------------------------------------------------------
+
+UPDATE_API = "https://api.github.com/repos/Darkside114/nostation-hub-sync/releases/latest"
+UPDATE_PAGE = HOMEPAGE + "/releases/latest"
+UPDATE_ASSET_NAME = "Nostation.exe"
+UPDATE_TIMEOUT = 20
+
+
+def version_tuple(text):
+    """把 "v1.10.2" 之类解析成可比较的元组。"""
+    m = re.search(r"(\d+)(?:\.(\d+))?(?:\.(\d+))?", str(text or ""))
+    if not m:
+        return None
+    return tuple(int(g) if g else 0 for g in m.groups())
+
+
+def fetch_latest_release():
+    """查询最新 Release。返回 dict，网络失败返回 None。
+
+    只用标准库 urllib，不引入新依赖；带 20 秒超时，失败静默返回 None
+    —— 检查更新失败不该影响软件正常使用。
+    """
+    import urllib.request
+    req = urllib.request.Request(
+        UPDATE_API,
+        headers={"User-Agent": "NostationAutoSyncCompanion/{}".format(APP_VERSION),
+                 "Accept": "application/vnd.github+json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=UPDATE_TIMEOUT) as resp:
+            data = json.loads(resp.read().decode("utf-8", "replace"))
+    except Exception as exc:
+        log("检查更新失败（网络或接口）: {}".format(exc))
+        return None
+    tag = data.get("tag_name") or ""
+    asset_url, asset_size = "", 0
+    for a in data.get("assets") or []:
+        if a.get("name") == UPDATE_ASSET_NAME:
+            asset_url = a.get("browser_download_url") or ""
+            asset_size = int(a.get("size") or 0)
+            break
+    return {
+        "tag": tag,
+        "version": version_tuple(tag),
+        "name": data.get("name") or tag,
+        "body": data.get("body") or "",
+        "html_url": data.get("html_url") or UPDATE_PAGE,
+        "published": data.get("published_at") or "",
+        "asset_url": asset_url,
+        "asset_size": asset_size,
+    }
+
+
+def has_update(rel):
+    if not rel or not rel.get("version"):
+        return False
+    cur = version_tuple(APP_VERSION)
+    return bool(cur) and rel["version"] > cur
+
+
+def sha256_of(path):
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 256), b""):
+            h.update(chunk)
+    return h.hexdigest().upper()
+
+
+def expected_sha_from_body(body):
+    """从 Release 说明里取 SHA256（我们自己发的说明里带这个值）。"""
+    m = re.search(r"\b([0-9A-Fa-f]{64})\b", body or "")
+    return m.group(1).upper() if m else ""
+
+
+def download_update(rel, dest, progress=None):
+    """下载新 exe 到 dest。progress(已下载, 总大小) 可选。返回 (ok, 说明)。"""
+    import urllib.request
+    url = rel.get("asset_url") or ""
+    if not url:
+        return False, "这个版本没有可下载的文件"
+    try:
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "NostationAutoSyncCompanion/{}".format(APP_VERSION)})
+        tmp = dest + ".part"
+        with urllib.request.urlopen(req, timeout=60) as resp, open(tmp, "wb") as out:
+            total = int(resp.headers.get("Content-Length") or rel.get("asset_size") or 0)
+            done = 0
+            while True:
+                chunk = resp.read(1024 * 256)
+                if not chunk:
+                    break
+                out.write(chunk)
+                done += len(chunk)
+                if progress:
+                    try:
+                        progress(done, total)
+                    except Exception:
+                        pass
+        # 完整性校验：有声明哈希就必须匹配
+        want = expected_sha_from_body(rel.get("body"))
+        got = sha256_of(tmp).upper()
+        if want and want != got:
+            os.remove(tmp)
+            return False, "下载文件校验失败（SHA256 不匹配）\n期望 {}\n实际 {}".format(want, got)
+        os.replace(tmp, dest)
+        return True, "SHA256 校验通过" if want else "已下载（该版本未提供校验值）"
+    except Exception as exc:
+        log("下载更新失败: {}".format(traceback.format_exc()))
+        return False, "下载失败：{}".format(exc)
+
+
+def spawn_self_replace(new_exe, log_file=None, no_restart=False):
+    """派一个独立脚本：等本进程退出 → 覆盖旧 exe → 重新启动。
+
+    为什么必须交给外部进程：Windows 不允许程序覆盖自己正在运行的 exe
+    （但允许**改名**它）。所以这里的做法是反复尝试替换 —— 进程一退出、
+    文件锁一释放，替换就成功。
+
+    踩过的两个坑（都实测过）：
+    1. 不能用 `tasklist ... | find "PID"` 判活 —— 给 find 加引号会变成
+       按字面搜索，永远匹配不到；
+    2. 更不能用 `tasklist` 的退出码判活 —— 它无论找没找到**都返回 0**，
+       只看 stdout 里有没有 "No tasks"。所以干脆不判活，直接重试替换。
+
+    返回 (ok, 说明)。
+    """
+    if not os.path.exists(new_exe):
+        return False, "下载文件不存在: {}".format(new_exe)
+    target = exe_path()
+    pid = os.getpid()
+    helper = os.path.join(data_dir(), "self-update.ps1")
+    if log_file is None:
+        log_file = os.path.join(data_dir(), "self-update.log")
+
+    # 脚本内容固定，路径全部通过参数传入 —— 避免中文路径写进文件后
+    # 因编码问题损坏（.ps1 里的非 ASCII 就是之前踩过的 BOM 坑）。
+    script = "\n".join([
+        "param([Parameter(Mandatory=$true)][string]$Target,",
+        "      [Parameter(Mandatory=$true)][string]$New,",
+        "      [int]$OldPid = 0,",
+        "      [string]$Log = '',",
+        "      [switch]$NoRestart)",
+        "$ErrorActionPreference = 'SilentlyContinue'",
+        "function Say($m) {",
+        "  $line = (Get-Date).ToString('HH:mm:ss') + '  ' + $m",
+        "  if ($Log) { Add-Content -LiteralPath $Log -Value $line -Encoding UTF8 }",
+        "}",
+        "Say ('等待旧进程退出 (pid ' + $OldPid + ')')",
+        "$deadline = (Get-Date).AddSeconds(40)",
+        "while ((Get-Date) -lt $deadline) {",
+        "  if (-not (Get-Process -Id $OldPid -ErrorAction SilentlyContinue)) { break }",
+        "  Start-Sleep -Milliseconds 400",
+        "}",
+        "Say '旧进程已退出，开始替换'",
+        "$ok = $false",
+        "$deadline = (Get-Date).AddSeconds(25)",
+        "while ((Get-Date) -lt $deadline) {",
+        "  if (-not (Test-Path -LiteralPath $New)) { $ok = $true; break }",
+        "  try {",
+        "    Move-Item -LiteralPath $New -Destination $Target -Force -ErrorAction Stop",
+        "    $ok = $true",
+        "    Say '替换成功'",
+        "    break",
+        "  } catch {",
+        "    Start-Sleep -Milliseconds 400",
+        "  }",
+        "}",
+        "if ($ok) {",
+        "  Say ('新版本已就位: ' + $Target)",
+        "  if (-not $NoRestart) {",
+        "    Say '重新启动程序'",
+        "    Start-Process -FilePath $Target",
+        "  }",
+        "} else {",
+        "  Say '替换失败（文件仍被占用）'; exit 1",
+        "}",
+        "Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force",
+        "",
+    ])
+    try:
+        with open(helper, "w", encoding="utf-8-sig", newline="\r\n") as fh:
+            fh.write(script)
+    except Exception as exc:
+        return False, "无法写入替换脚本: {}".format(exc)
+
+    CREATE_NO_WINDOW = 0x08000000
+    exe = "powershell.exe"
+    args = [exe, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", helper,
+            "-Target", target, "-New", new_exe, "-OldPid", str(pid), "-Log", log_file]
+    if no_restart:
+        args.append("-NoRestart")
+    try:
+        subprocess.Popen(args, creationflags=CREATE_NO_WINDOW, close_fds=True,
+                         cwd=data_dir())
+    except Exception as exc:
+        return False, "无法启动替换脚本: {}".format(exc)
+    log("已派发自替换脚本: {} -> {}（等 pid {} 退出）".format(new_exe, target, pid))
+    return True, helper
+
+
 def show_license():
     """显示 UAC 无关的许可对话框。返回 MessageBox 结果码，失败返回 None。"""
     try:
@@ -671,15 +890,11 @@ def about_text():
         "      网页版 Sync 按钮使用相同的 HID 协议）。",
         "",
         "隐私：本软件不联网、不上传任何数据，只与本机 USB HID 设备通信。",
-        "授权：{}，以 MIT 许可证【开源】发布——可自由使用、修改、".format(EDITION),
+        "      （仅「检查更新」会访问 GitHub 公开接口，可在帮助菜单关闭该行为）",        "授权：{}，以 MIT 许可证【开源】发布——可自由使用、修改、".format(EDITION),
         "      再分发，保留版权声明与署名即可。欢迎在项目主页提",
         "      Issue 或 Pull Request。",
         "",
-        "版本历史：",
-    ]
-    for ver, note in CHANGELOG:
-        lines.append("  v{}  {}".format(ver, note))
-    lines += [
+        "版本历史：见帮助菜单「版本历史」（不在这里堆一长串）。",
         "",
         "程序：{}".format(exe_path()),
         "日志：{}".format(log_path()),
@@ -2084,6 +2299,14 @@ class App:
         m_help = tk.Menu(menubar, tearoff=0)
         m_help.add_command(label="怎么用（每个按钮是干什么的）", command=self.on_help)
         m_help.add_separator()
+        m_help.add_command(label="检查更新", command=self.on_check_update)
+        m_help.add_command(label="版本历史", command=self.on_changelog)
+        self.var_autocheck = tk.BooleanVar(
+            value=load_config().get("auto_check_update", True) is not False)
+        m_help.add_checkbutton(label="启动时自动检查更新",
+                               variable=self.var_autocheck,
+                               command=self.on_toggle_autocheck)
+        m_help.add_separator()
         m_help.add_command(label="关于 {}".format(APP_TITLE), command=self.on_about)
         m_help.add_command(label="查看许可条款", command=self.on_license)
         m_help.add_separator()
@@ -2159,15 +2382,20 @@ class App:
             self.warn_label.configure(text="未检测到连接")
 
     # ------------------------------------------------------------ 状态刷新 --
-    def refresh(self):
+    def refresh(self, manual=True):
         """重新检查全部状态（比自动轮询查得更全）。
 
         自动轮询（tick，每 3 秒）只看设备插拔和日志；这里还会重新核对
-        开机自启、启动文件夹、开机前任务、后台进程，并把结果写进运行记录，
+        开机自启、启动文件夹、开机前任务、后台进程。
+
+        manual=True（用户点了「重新检查」）时把结果写进运行记录 ——
         否则用户点完看不到任何反馈，会以为按钮没反应。
+        manual=False（程序启动时自动跑一次）不写「手动重新检查」那行，
+        避免把自动刷新误标成用户操作（这个 bug 1.7.0 版本出现过）。
         """
-        self.set_status("正在重新检查…")
-        self.run_async(self._collect_state, self._on_state_refreshed)
+        self.set_status("正在重新检查…" if manual else "正在检查设备与同步状态…")
+        self.run_async(self._collect_state,
+                       self._on_state_refreshed if manual else self._apply_state)
 
     def _on_state_refreshed(self, state):
         self._apply_state(state)
@@ -2465,6 +2693,212 @@ class App:
             except Exception:
                 pass
 
+    def on_toggle_autocheck(self):
+        """开关「启动时自动检查更新」。"""
+        on = bool(self.var_autocheck.get())
+        cfg = load_config()
+        cfg["auto_check_update"] = on
+        save_config(cfg)
+        msg = "已开启启动时自动检查更新" if on else "已关闭启动时自动检查更新（仍可手动检查）"
+        self.append_log(msg)
+        log("界面：" + msg)
+        self.set_status(msg)
+
+    def on_changelog(self):
+        """版本历史单独一个对话框（不再塞进「关于」）。"""
+        self.append_log("打开「版本历史」")
+        try:
+            show_text_dialog(self.root, "版本历史  ·  {}".format(APP_TITLE),
+                             changelog_text(), width=76, height=28)
+        except Exception as exc:
+            log("版本历史对话框失败: {}".format(exc))
+
+    # ------------------------------------------------------------ 检查更新 --
+    def on_check_update(self, silent=False):
+        """检查更新。
+
+        silent=True 用于启动时自动检查：没有更新（或检查失败）时完全不打扰用户。
+        """
+        if silent and load_config().get("auto_check_update") is False:
+            log("启动检查更新：已被用户关闭（配置 auto_check_update=false）")
+            return
+        if getattr(self, "_update_busy", False):
+            return
+        self._update_busy = True
+        self._update_silent = silent
+        if not silent:
+            self.set_status("正在检查更新…")
+            self.append_log("手动检查更新…")
+
+        def work():
+            return fetch_latest_release()
+
+        def done(rel):
+            self._update_busy = False
+            if rel is None:
+                if not silent:
+                    self.set_status("检查更新失败（网络不可用？）")
+                    self.append_log("检查更新失败：无法访问 GitHub")
+                    from tkinter import messagebox
+                    messagebox.showwarning(
+                        "检查更新失败",
+                        "没能连上 GitHub 获取版本信息。\n\n"
+                        "可能原因：网络不可用、被墙、或 GitHub 接口临时异常。\n"
+                        "这不影响软件正常使用，稍后再试即可。",
+                        parent=self.root)
+                return
+            if not has_update(rel):
+                if not silent:
+                    self.set_status("已是最新版本 v{}".format(APP_VERSION))
+                    self.append_log("检查更新：已是最新版本（线上 v{}）".format(rel["tag"]))
+                    from tkinter import messagebox
+                    messagebox.showinfo(
+                        "已是最新版本",
+                        "当前版本：v{}\n线上最新：{}\n\n已是最新，无需更新。".format(
+                            APP_VERSION, rel["tag"]),
+                        parent=self.root)
+                return
+            # 有更新
+            self.append_log("检查更新：发现新版本 {}（当前 v{}）".format(
+                rel["tag"], APP_VERSION))
+            if silent and load_config().get("skip_version") == rel["tag"]:
+                log("启动检查更新：{} 已被用户选择跳过".format(rel["tag"]))
+                return
+            self._prompt_update(rel)
+
+        self.run_async(work, done)
+
+    def _prompt_update(self, rel):
+        """有更新时弹对话框，问是否下载并自动替换。"""
+        from tkinter import messagebox
+        body = rel.get("body") or ""
+        brief = body.strip()
+        if len(brief) > 1200:
+            brief = brief[:1200] + "\n……（完整说明见发布页）"
+        try:
+            size_mb = rel["asset_size"] / 1024.0 / 1024.0
+            size_txt = "{:.2f} MB".format(size_mb)
+        except Exception:
+            size_txt = "未知大小"
+        msg = (
+            "发现新版本：{}\n"
+            "当前版本：v{}\n"
+            "下载大小：{}\n\n"
+            "是否现在下载并自动替换旧版本？\n\n"
+            "· 下载完成后程序会自动关闭，替换 exe 并重新打开\n"
+            "· 你的开机自启设置、日志、配置都不会受影响\n"
+            "· 若网络较慢也可以选「否」，去发布页手动下载\n\n"
+            "———— 本次更新内容 ————\n{}"
+        ).format(rel["tag"], APP_VERSION, size_txt, brief)
+        self.set_status("发现新版本 {}".format(rel["tag"]))
+        yes = messagebox.askyesno("发现新版本 {}".format(rel["tag"]), msg,
+                                  parent=self.root)
+        if not yes:
+            self.append_log("已跳过本次更新（{}）".format(rel["tag"]))
+            cfg = load_config()
+            cfg["skip_version"] = rel["tag"]
+            save_config(cfg)
+            return
+        self._start_update_download(rel)
+
+    def _start_update_download(self, rel):
+        """下载 → 校验 → 派发自替换脚本 → 退出本进程。"""
+        import tempfile
+        from tkinter import messagebox
+        dest = os.path.join(tempfile.gettempdir(),
+                            "Nostation-update-{}.exe".format(rel["tag"]))
+
+        # 进度对话框
+        win = None
+        bar = None
+        label = None
+        try:
+            import tkinter as tk
+            from tkinter import ttk
+            win = tk.Toplevel(self.root)
+            win.title("正在下载更新 {}".format(rel["tag"]))
+            win.transient(self.root)
+            win.resizable(False, False)
+            win.protocol("WM_DELETE_WINDOW", lambda: None)   # 下载中不允许关闭
+            frm = ttk.Frame(win, padding=16)
+            frm.pack(fill="both", expand=True)
+            ttk.Label(frm, text="正在下载 {} …".format(rel["tag"])).pack(anchor="w")
+            bar = ttk.Progressbar(frm, length=380, mode="determinate", maximum=100)
+            bar.pack(pady=10)
+            label = ttk.Label(frm, text="0%")
+            label.pack(anchor="w")
+            ttk.Label(frm, text="下载完成后程序会自动关闭并替换为新版本。",
+                      foreground="#5a6673").pack(anchor="w", pady=(8, 0))
+            win.update_idletasks()
+            w, h = win.winfo_width(), win.winfo_height()
+            x = self.root.winfo_rootx() + (self.root.winfo_width() - w) // 2
+            y = self.root.winfo_rooty() + (self.root.winfo_height() - h) // 2
+            win.geometry("+{}+{}".format(max(0, x), max(0, y)))
+        except Exception as exc:
+            log("进度对话框创建失败: {}".format(exc))
+            win = None
+
+        def progress(done, total):
+            def ui():
+                if bar is None:
+                    return
+                pct = int(done * 100 / total) if total else 0
+                try:
+                    bar.configure(value=pct)
+                    label.configure(text="{}%  （{:.1f} / {:.1f} MB）".format(
+                        pct, done / 1048576.0, (total or 0) / 1048576.0))
+                except Exception:
+                    pass
+            try:
+                self.root.after(0, ui)
+            except Exception:
+                pass
+
+        def work():
+            return download_update(rel, dest, progress)
+
+        def done_result(result):
+            ok, info = result if isinstance(result, tuple) else (False, "未知错误")
+            if win is not None:
+                try:
+                    win.destroy()
+                except Exception:
+                    pass
+            if not ok:
+                self.append_log("更新下载失败：{}".format(info))
+                self.set_status("更新下载失败")
+                messagebox.showerror("更新失败", "{}\n\n可到发布页手动下载：\n{}".format(
+                    info, rel.get("html_url") or UPDATE_PAGE), parent=self.root)
+                return
+            self.append_log("更新已下载并通过校验：{}".format(dest))
+            self.set_status("下载完成，正在替换旧版本…")
+            ok_spawn, info_spawn = spawn_self_replace(dest)
+            if not ok_spawn:
+                self.append_log("派发替换脚本失败：{}".format(info_spawn))
+                messagebox.showerror(
+                    "自动替换失败",
+                    "新版已下载到：\n{}\n\n但自动替换没能启动（{}）。\n"
+                    "请手动关闭本程序，把上面这个文件改名为 "
+                    "Nostation自动同步伴侣.exe 覆盖旧版。".format(dest, info_spawn),
+                    parent=self.root)
+                return
+            messagebox.showinfo(
+                "更新准备就绪",
+                "新版已下载并通过 SHA256 校验。\n\n"
+                "点「确定」后程序会关闭，自动替换 exe 并重新打开。\n"
+                "（大约 3~10 秒，期间请不要手动操作）\n\n"
+                "替换过程会记录在：\n{}".format(
+                    os.path.join(data_dir(), "self-update.log")),
+                parent=self.root)
+            log("更新：退出程序以便替换 exe")
+            try:
+                self.root.destroy()
+            except Exception:
+                pass
+
+        self.append_log("开始下载 {} …".format(rel["tag"]))
+        self.run_async(work, done_result)
+
     def on_about(self):
         self.append_log("打开「关于」对话框")
         show_about(self.root)
@@ -2641,7 +3075,18 @@ def _gui_deferred_startup(app):
                 "{}  ·  位置已自动修正".format(APP_TITLE), 0x40 | 0x40000)
         except Exception:
             pass
-    app.refresh()
+    try:
+        # manual=False：这是程序启动时的自动检查，不该写成「手动重新检查」
+        app.refresh(manual=False)
+    except Exception as exc:
+        log("启动状态刷新失败: {}".format(exc))
+
+    # 启动时自动检查一次更新（静默：没有更新或网络不通都不打扰用户）。
+    # 延迟 3 秒，让窗口先稳定显示、状态先查完。
+    try:
+        app.root.after(3000, lambda: app.on_check_update(silent=True))
+    except Exception as exc:
+        log("排入启动检查更新失败: {}".format(exc))
 
 
 # ---------------------------------------------------------------------------
