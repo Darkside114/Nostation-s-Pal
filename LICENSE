@@ -19,21 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-附：中文说明（仅供参考，以英文正文为准）
-
-本项目是开源软件，以 MIT 许可证发布。你可以自由使用、复制、修改、
-合并、发布、分发、再许可及销售本软件，只需：
-
-1. 在所有副本或主要部分中保留上述版权声明与本许可声明；
-2. 不擅自移除或篡改作者署名（MIT 本身就要求保留版权声明）；
-3. 不以本项目作者的名义发布、背书或作出任何承诺；
-4. 修改版请注明已作修改，避免与原版混淆。
-
-软件按"现状"提供，不附带任何担保，作者不对使用后果承担责任。
-本软件只修改设备时钟，不会改动按键映射、灯光设置或屏幕内容，也不会联网上传任何数据。
-
-欢迎在项目主页提出 Issue 或 Pull Request：
-https://github.com/Darkside114/nostation-hub-sync

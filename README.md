@@ -253,7 +253,7 @@ Get-Content status.txt
 Copyright (c) 2026 Darkside
 ```
 
-软件按"现状"提供，不附带任何担保。完整的英文许可正文见 [LICENSE](LICENSE)；
+软件按"现状"提供，不附带任何担保。完整的英文许可正文见 [LICENSE](LICENSE)；中文通俗说明见 [NOTICE.md](NOTICE.md)。
 软件内「关于」对话框与首次启动时的许可条款也包含同样的说明（[LICENSE_TERMS.txt](LICENSE_TERMS.txt)）。
 
 ## 参与贡献
