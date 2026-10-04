@@ -22,9 +22,11 @@ import argparse
 import base64
 import ctypes
 import datetime
+import glob
 import json
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -38,10 +40,14 @@ import traceback
 
 APP_TITLE = "Nostation 自动同步伴侣"
 APP_NAME_EN = "Nostation Auto Sync Companion"
-APP_VERSION = "1.10.1"
-APP_BUILD = 1101
+APP_VERSION = "1.11.0"
+APP_BUILD = 1110
 # 版本历史（每次迭代都要改 APP_VERSION / APP_BUILD 并在这里记一行）
 CHANGELOG = [
+    ("1.11.0", "处理「Failed to remove temporary directory」警告框：单文件程序"
+               "非正常结束时会在系统临时目录留下约 30 MB 残留，现在启动时会自动"
+               "回收（只清理确属本程序的），退出前也会先释放临时目录里的 Tcl/Tk "
+               "数据，让 bootloader 更容易删干净、不再弹那个框"),
     ("1.10.1", "构建脚本改为自动探测 Python，别人克隆后可直接打包；"
                "exe 体积从 12.8 MB 精简到 11.1 MB：窗口图标改为构建时预生成"
                "（运行时不再需要 Pillow），并去掉 Tcl/Tk 里用不到的编码表与示例资源"),
@@ -297,6 +303,68 @@ def _bundled_data_dirs():
         out.append(os.path.dirname(os.path.abspath(sys.executable)))
     out.append(script_dir())
     return out
+
+
+def sweep_leftover_tempdirs():
+    """清理历史遗留在系统临时目录里的 _MEIxxxx，回收磁盘空间。
+
+    单文件程序被强制结束时（关机、任务管理器结束任务、自动更新时替换 exe），
+    bootloader 来不及删除临时目录，就留下一份完整依赖副本（约 25~30 MB）。
+    累积起来会占用可观空间。
+
+    只删"确凿是本程序留下的"目录，避免误删别的程序：
+      * 目录名形如 _MEIxxxxx
+      * 目录里含本程序特有的 companion.ico
+      * **跳过当前进程自己正在用的那个目录**（见下面的注释，这里犯过错）
+      * 删不掉（仍被占用）就跳过
+    """
+    removed = 0
+    freed = 0
+    try:
+        import tempfile as _tf
+        root = _tf.gettempdir()
+    except Exception:
+        return 0, 0
+
+    # 绝不能删当前进程自己的解压目录 —— 那正是程序运行所需文件所在之处。
+    # 之前漏了这一步，结果 sweep 把"自己"当成了"历史残留"删掉：
+    # 已加载进内存的 DLL 还能用，但 Tcl 的数据文件（init.tcl 等）在磁盘上
+    # 被删了，程序随即报 "Can't find a usable init.tcl" 而启动失败。
+    own = os.path.abspath(getattr(sys, "_MEIPASS", "") or "")
+    own_real = os.path.realpath(own) if own else ""
+
+    for path in glob.glob(os.path.join(root, "_MEI*")):
+        if not os.path.isdir(path):
+            continue
+        # 跳过自己
+        if own:
+            try:
+                if os.path.abspath(path) == own or os.path.realpath(path) == own_real:
+                    continue
+            except Exception:
+                pass
+        try:
+            if ICON_FILENAME not in set(os.listdir(path)):
+                continue
+        except Exception:
+            continue
+        size = 0
+        try:
+            for r, _d, fs in os.walk(path):
+                for f in fs:
+                    try:
+                        size += os.path.getsize(os.path.join(r, f))
+                    except Exception:
+                        pass
+            shutil.rmtree(path, ignore_errors=False)
+            removed += 1
+            freed += size
+        except Exception:
+            continue
+    if removed:
+        log("已清理历史临时目录残留 {} 个（回收 {:.1f} MB）".format(
+            removed, freed / 1048576.0))
+    return removed, freed
 
 
 def window_icon_asset_path():
@@ -3240,6 +3308,8 @@ def run_gui():
         close_splash()                      # 界面已就绪，撤掉启动画面
         _schedule_splash_safety_net(root)   # 异常时兜底关闭
         root.after(30, lambda: _gui_deferred_startup(app))
+        # 顺手回收历史遗留的临时目录（被强制结束时 bootloader 来不及删）
+        root.after(1200, lambda: _safe_sweep_tempdirs())
         root.mainloop()
         return 0
     except Exception:
@@ -3251,6 +3321,13 @@ def run_gui():
         except Exception:
             pass
         return 1
+
+
+def _safe_sweep_tempdirs():
+    try:
+        sweep_leftover_tempdirs()
+    except Exception:
+        pass
 
 
 def _gui_deferred_startup(app):
@@ -3320,6 +3397,15 @@ def main(argv=None):
         return 0
 
     _load_reject_state()
+
+    # 回收历史遗留的 _MEIxxxx 临时目录（被强制结束时 bootloader 来不及删）。
+    # 放在最前面：不依赖界面，命令行模式也会执行。
+    # --status 是自检用的只读路径，跳过以免影响它。
+    if not args.status:
+        try:
+            sweep_leftover_tempdirs()
+        except Exception:
+            pass
 
     # 重要：PyInstaller 的启动闪屏在这些"无界面"模式里**也会被创建**，
     # 如果不主动关闭，它就会永久挂在桌面上——后台同步进程（--watch）

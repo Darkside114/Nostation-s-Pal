@@ -109,8 +109,17 @@ $trimPatterns = @(
     'tcl8.6\encoding\iso2022-jp.enc', 'tcl8.6\encoding\iso2022-kr.enc',
     'tcl8.6\encoding\macJapan.enc',
     'tix8.4.3', 'tk8.6\demos',
-    # static link libraries for embedding Tcl/Tk -- never used at run time
-    '*.lib'
+    # Static link libraries for embedding Tcl/Tk -- never used at run time.
+    #
+    # List them EXPLICITLY. Do NOT use a '*.lib' wildcard here: Tcl's library
+    # scripts (init.tcl and the *.tcl files under tcl8/) are what Tcl needs to
+    # start, and a '*.lib' glob does not match *.tcl -- BUT an earlier version of
+    # this script used '*.lib' and a broader glob, which removed init.tcl and made
+    # Tk fail at startup with:
+    #   "Can't find a usable init.tcl in the following directories"
+    # That bug shipped in one build. Keep this list explicit and re-test the GUI
+    # after touching it.
+    'tcl86t.lib', 'tk86t.lib', 'tclstub86.lib', 'tkstub86.lib'
 )
 
 Write-Host "Source dir: $here" -ForegroundColor Cyan
