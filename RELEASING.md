@@ -40,6 +40,60 @@ license_version，若再用点分编号会出现"1.1.0 与 1.8.1 谁更新"的�
 另外确认：license_ok() 只被 un_gui() 调用，后台进程（--watch）不检查许可，
 所以条款更新后**即使还没点同意，开机校时也不会中断**。改这块时务必保持这个性质。
 
+## 一之三、PowerShell 脚本的两条硬性规则
+
+这个仓库反复被同一类问题坑过，改 .ps1 时请守住两条：
+
+### 规则 1：含中文的 .ps1 **必须**有 UTF-8 BOM
+
+Windows PowerShell 5.1 会把**没有 BOM** 的 .ps1 当成 ANSI(GBK) 读，
+文件里的中文会变乱码，**并直接导致语法错误（报错信息还是乱码，极难排查）**。
+用 PowerShell 写文件时要显式指定：
+
+```powershell
+[System.IO.File]::WriteAllText($path, $text, (New-Object System.Text.UTF8Encoding($true)))
+```
+
+另外注意：**某些编辑器/工具保存时会丢掉 BOM**，改完请复查。
+
+### 规则 2：uild_exe.ps1 必须是**纯ASCII**
+
+它只含英文，所以不依赖 BOM。历史上唯一一次中文注释就是因此报错的。
+现在脚本开头会**自检**：发现非 ASCII 字符就直接抛错并列出字符，
+不会再让你对着乱码报错猜半天。
+
+### 自查命令（提交前跑一遍）
+
+```powershell
+Get-ChildItem -Recurse -Filter *.ps1 | Where-Object { $_.FullName -notlike '*\.git\*' } | ForEach-Object {
+    $b = [System.IO.File]::ReadAllBytes($_.FullName)
+    $bom = ($b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF)
+    $t = [System.IO.File]::ReadAllText($_.FullName, [System.Text.Encoding]::UTF8)
+    $n = ($t.ToCharArray() | Where-Object { [int]$_ -gt 127 }).Count
+    '{0,-28} 非ASCII={1,-4} BOM={2}' -f $_.Name, $n, $bom
+}
+```
+
+## 一之四、不要写死本机绝对路径
+
+历史教训：早期脚本把作者本机的 Python 路径
+（`C:\Users\<账户名>\...`）写死了，造成两个问题——
+**泄露 Windows 账户名到公开仓库**，以及**别人克隆后无法构建**。
+
+现在统一做法：
+
+- Python 解释器由 [esolve_python.ps1](resolve_python.ps1) 自动探测
+  （`NOSTATION_PYTHON` 环境变量 > PATH > `py` 启动器 > 注册表 > 常见安装目录），
+  并会跳过 Microsoft Store 的 `python.exe` 占位存根
+- 需要指定时用环境变量，而不是改脚本：
+  ```powershell
+  $env:NOSTATION_PYTHON = "D:\Python312\python.exe"
+  ```
+- 提交前自查有没有残留：
+  ```powershell
+  git grep -n -I -E 'C:\\\\Users\\\\[A-Za-z0-9_.-]+'
+  ```
+
 ## 二、本地验证
 
 ```powershell
@@ -100,8 +154,8 @@ GitHub 的 Release 附件名**只支持 ASCII**（试过直接编码和双重编
 ## 五、提交代码
 
 ```powershell
-. <git-env.ps1>
-cd <repo>
+# 先用你的方式让 git 可用（例如安装 Git for Windows，或确保 git 在 PATH 里）
+cd <你克隆仓库的目录>
 git add -A
 git commit -m "feat(v1.8.2): ..."
 git push

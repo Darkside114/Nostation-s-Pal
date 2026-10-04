@@ -182,23 +182,35 @@ VIA_PREFIX        = 0xFE    # 本固件不支持读 Vial 定义（返回 08 07 .
 
 ## 从源码构建
 
-需要 Windows + Python 3.12，依赖 `hidapi`、`Pillow`、`pyinstaller`：
+需要 Windows + Python 3.10 以上（实测 3.12），然后安装依赖：
 
 ```powershell
-pip install hidapi Pillow pyinstaller
+pip install -r requirements.txt
 ```
 
-然后：
+打包：
 
 ```powershell
 .\build_exe.ps1
 ```
 
-脚本会自动：生成版本资源 → 生成启动画面 → 打包单文件 exe → 用
-`--status --no-heal` 做一次自检。产物在 `dist\`。
+脚本会自动：**探测 Python** → 生成版本资源 → 生成启动画面 → 打包单文件 exe →
+用 `--status --no-heal` 做一次自检。产物在 `dist\`。
+
+**Python 不需要手动指定**：脚本按
+`NOSTATION_PYTHON` 环境变量 → `PATH` → `py` 启动器 → 注册表 → 常见安装目录
+的顺序查找，并会跳过 Microsoft Store 的 `python.exe` 占位存根。
+想指定特定解释器就用环境变量，不要改脚本：
+
+```powershell
+$env:NOSTATION_PYTHON = "D:\Python312\python.exe"
+.\build_exe.ps1
+```
 
 > 版本号与更新记录在 [`companion_app.py`](companion_app.py) 顶部的
 > `APP_VERSION` / `APP_BUILD` / `CHANGELOG`，打包时会同步写进 exe 属性。
+> 发版流程与几条容易踩的坑（PowerShell 编码、绝对路径、条款版本号）
+> 都记在 [`RELEASING.md`](RELEASING.md) 里。
 
 ## 命令行参数
 
@@ -219,10 +231,13 @@ pip install hidapi Pillow pyinstaller
 ```
 nostation-hub-sync/
 ├── companion_app.py          # 主程序（界面 + 协议 + 后台巡查 + 许可）
-├── build_exe.ps1             # 一键打包
+├── build_exe.ps1             # 一键打包（自动探测 Python）
+├── resolve_python.ps1        # Python 解释器探测（多个脚本共用）
+├── requirements.txt          # Python 依赖
 ├── make_icon.py              # 应用图标生成器
 ├── make_splash.py            # 启动画面生成器
 ├── generate_version_info.py  # 生成 exe 的版本资源
+├── LICENSE                   # MIT 许可证
 ├── LICENSE_TERMS.txt         # 许可条款纯文本（与程序内一致）
 ├── NOTICE.md                 # 许可中文说明
 ├── RELEASING.md              # 发版流程备忘（打包、发布、注意事项）
@@ -238,12 +253,15 @@ nostation-hub-sync/
 │   ├── amk_probe.py          # AMK 协议探测
 │   └── vial_definition.py    # Vial 定义读取尝试
 ├── scripts/                  # 辅助脚本
-│   ├── install.ps1 / uninstall.ps1
-│   ├── make_portable.ps1
-│   ├── put_on_desktop.ps1
-│   └── move_to_fixed_dir.ps1
-└── legacy/                   # 旧版（v1.1.x，脚本式安装，已被单文件版取代）
+│   ├── put_on_desktop.ps1    # 把构建好的 exe 放到桌面
+│   └── uninstall.ps1         # 手动卸载（一般用界面里的「停止同步」即可）
+└── legacy/                   # 旧版（v1.1.x 脚本式安装，已被单文件版取代）
+    ├── install.ps1 / make_portable.ps1 / move_to_fixed_dir.ps1
+    └── nostation_sync.py / nostation_watcher.py / start-watcher.vbs
 ```
+
+> `legacy/` 里的脚本保留只为参考：自 v1.2.0 起软件是单文件 exe，
+> 安装、自启、迁移、清理都由软件自己做，这些脚本不再需要。
 
 ## 数据文件
 

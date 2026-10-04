@@ -1,4 +1,4 @@
-﻿﻿#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
     NOSTATION hub clock sync - installer
 
@@ -17,7 +17,8 @@
 [CmdletBinding()]
 param(
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'NostationSync'),
-    [string]$PythonSource = '<python>',
+    # 留空则自动探测（见仓库根目录 resolve_python.ps1），也可显式传入
+    [string]$PythonSource = '',
     [switch]$NoAutostart
 )
 
@@ -33,8 +34,21 @@ Say "Installing to $InstallDir" 'Cyan'
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 
 # ---------------------------------------------------------------- 1. runtime --
-if (-not (Test-Path (Join-Path $PythonSource 'python.exe'))) {
-    throw "Python runtime not found at $PythonSource. Pass -PythonSource <dir>."
+# If -PythonSource is not given, auto-detect a usable Python 3 (reusing the
+# repository-level resolve_python.ps1). NOTE: this install.ps1 belongs to the
+# legacy v1.1.x script-based installer; since v1.2.0 the app is a single exe and
+# does not need it. Kept for reference only.
+if (-not $PythonSource) {
+    $resolver = Join-Path (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)) 'resolve_python.ps1'
+    if (Test-Path -LiteralPath $resolver) {
+        . $resolver
+        $pyExe = Resolve-PythonInterpreter
+        $PythonSource = Split-Path -Parent $pyExe
+        Say "  detected Python: $PythonSource"
+    }
+}
+if (-not $PythonSource -or -not (Test-Path (Join-Path $PythonSource 'python.exe'))) {
+    throw "Python runtime not found. Pass -PythonSource <dir> (the dir must contain python.exe)."
 }
 $pyDest = Join-Path $InstallDir 'python'
 if (-not (Test-Path (Join-Path $pyDest 'python.exe'))) {

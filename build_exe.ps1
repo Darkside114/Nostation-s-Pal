@@ -21,11 +21,54 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Python = '<python>\python.exe'
+    # Optional: path to python.exe. When omitted, resolve_python.ps1 probes for a
+    # usable Python 3 (env var NOSTATION_PYTHON > PATH > py launcher > registry >
+    # common install dirs). The old version of this script hard-coded the author's
+    # local interpreter path, which leaked the Windows account name into a public
+    # repo and made the script unusable on any other machine.
+    [string]$Python = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# ---------------------------------------------------------------------------
+# Guard: this file MUST stay ASCII-only.
+# Windows PowerShell 5.1 reads BOM-less .ps1 as ANSI and corrupts/non-parse any
+# non-ASCII literal, so a Chinese comment here can break the whole build with a
+# confusing parser error. Fail loudly instead.
+# ---------------------------------------------------------------------------
+$selfText = [System.IO.File]::ReadAllText($PSCommandPath)
+$badChars = @($selfText.ToCharArray() | Where-Object { [int]$_ -gt 127 })
+if ($badChars.Count -gt 0) {
+    $sample = ($badChars | Select-Object -First 10) -join ' '
+    throw ("build_exe.ps1 must stay ASCII-only, but found {0} non-ASCII chars: {1}" -f
+        $badChars.Count, $sample)
+}
+
+if (-not $Python) {
+    . (Join-Path $here 'resolve_python.ps1')
+    # Fallback candidates: scan common layouts of "an interpreter bundled with a
+    # development runtime". Why needed: the author's machine has no standalone
+    # Python install, so the build uses the interpreter shipped with the dev
+    # runtime. This globs for it instead of hard-coding one machine's path, so it
+    # works on the author's box without leaking the account name publicly.
+    $extra = @()
+    foreach ($root in @(
+            (Join-Path $env:LOCALAPPDATA '.dsh'),
+            (Join-Path $env:USERPROFILE '.dsh'),
+            (Join-Path $env:USERPROFILE 'scoop\apps'),
+            (Join-Path $env:LOCALAPPDATA 'Programs'))) {
+        if (Test-Path -LiteralPath $root) {
+            $extra += @(Get-ChildItem -LiteralPath $root -Recurse -Filter 'python.exe' `
+                    -ErrorAction SilentlyContinue -Depth 8 |
+                    Select-Object -ExpandProperty FullName)
+        }
+    }
+    $Python = Resolve-PythonInterpreter -ExtraCandidates $extra
+    Write-Host "Python: $Python" -ForegroundColor Cyan
+}
+if (-not (Test-Path -LiteralPath $Python)) { throw "python not found: $Python" }
 # PyInstaller mangles non-ASCII --name values (they get re-encoded to the ANSI
 # code page), so build under an ASCII name and rename afterwards.
 $BuildName = 'NostationAutoSyncCompanion'

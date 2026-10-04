@@ -1,4 +1,4 @@
-﻿﻿#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
     把 Nostation自动同步伴侣.exe 迁移到固定目录，并把开机自启指向新位置。
 
@@ -8,7 +8,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$SourceExe = '<repo>\dist\Nostation自动同步伴侣.exe',
+    [string]$SourceExe = (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'dist\Nostation自动同步伴侣.exe'),
     [string]$TargetDir = (Join-Path $env:LOCALAPPDATA 'Programs\NostationAutoSync'),
     [switch]$KeepLegacy
 )

@@ -38,10 +38,12 @@ import traceback
 
 APP_TITLE = "Nostation 自动同步伴侣"
 APP_NAME_EN = "Nostation Auto Sync Companion"
-APP_VERSION = "1.10.0"
-APP_BUILD = 1100
+APP_VERSION = "1.10.1"
+APP_BUILD = 1101
 # 版本历史（每次迭代都要改 APP_VERSION / APP_BUILD 并在这里记一行）
 CHANGELOG = [
+    ("1.10.1", "构建脚本改为自动探测 Python：不再写死某一台机器的解释器路径，"
+               "别人克隆后可直接运行 build_exe.ps1 打包；新增 requirements.txt"),
     ("1.10.0", "许可条款改动后会重新弹出确认：条款有了独立的版本号，"
                "只要条款文字有变，已同意的老用户下次打开界面会读到新条款并再次确认"
                "（只升软件版本、不改条款时不会打扰）。后台同步不受影响，"
@@ -94,6 +96,36 @@ CHANGELOG = [
     ("1.0.0", "首个版本：设备准入校验（仅服务 NOSTATION）、未连接时置灰操作按钮、"
               "注册表自启、免安装单文件、版权署名与许可条款"),
 ]
+
+# ---------------------------------------------------------------------------
+# 版本号一致性自检
+#
+# 版本要同时写在三处（APP_VERSION / APP_BUILD / CHANGELOG 首条），手工维护
+# 很容易漏（本项目真的漏过一次 CHANGELOG、也写坏过一次字符串）。这里在导入时
+# 就检查，不一致直接抛出，免得带着错误的版本号发出去 —— 自动更新靠版本号比较，
+# 版本号错了会导致用户收不到更新或反复收到更新。
+# ---------------------------------------------------------------------------
+def _check_version_consistency():
+    if CHANGELOG and CHANGELOG[0][0] != APP_VERSION:
+        raise RuntimeError(
+            "版本号不一致：APP_VERSION={!r}，但 CHANGELOG 首条是 {!r}。"
+            "发版前请把新版本记进 CHANGELOG 第一行。".format(
+                APP_VERSION, CHANGELOG[0][0]))
+    if APP_VERSION.count(".") == 2:
+        expected_build = int(APP_VERSION.replace(".", ""))
+        if APP_BUILD != expected_build:
+            raise RuntimeError(
+                "APP_BUILD 与 APP_VERSION 不匹配：{} 应对应 {}，实际是 {}。".format(
+                    APP_VERSION, expected_build, APP_BUILD))
+    ver_in_log = [v for v, _ in CHANGELOG if v == APP_VERSION]
+    if len(ver_in_log) != 1:
+        raise RuntimeError(
+            "CHANGELOG 里 {} 出现了 {} 次（应为 1 次）。".format(
+                APP_VERSION, len(ver_in_log)))
+
+
+_check_version_consistency()
+
 AUTHOR = "Darkside"
 COMPANY = "Darkside"
 COPYRIGHT_YEAR = "2026"

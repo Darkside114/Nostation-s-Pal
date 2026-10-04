@@ -1,4 +1,4 @@
-﻿﻿#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
     Make the app a true single-file portable tool:
 
@@ -12,7 +12,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$SourceExe = '<repo>\dist\Nostation自动同步伴侣.exe',
+    [string]$SourceExe = (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'dist\Nostation自动同步伴侣.exe'),
     [string]$TargetDir = (Join-Path $env:LOCALAPPDATA 'Programs\NostationAutoSync')
 )
 
