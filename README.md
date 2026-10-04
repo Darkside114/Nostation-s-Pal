@@ -42,7 +42,9 @@ Matrix Lab 的 **NOSTATION** hub 带一块屏幕，时间需要手动同步—�
 
 ### 直接使用（推荐）
 
-1. 到 [Releases](../../releases) 下载 `Nostation自动同步伴侣.exe`
+1. 到 [Releases](../../releases) 下载 `Nostation.exe`（单文件绿色版，免安装）
+   - GitHub 的下载附件名只支持 ASCII 字符，所以附件叫 `Nostation.exe`；
+     想恢复中文文件名的话，下载后重命名为 `Nostation自动同步伴侣.exe` 即可，功能完全相同
 2. 放到任意位置（桌面即可），双击运行
 3. 首次运行阅读并同意许可条款
 4. 插好 NOSTATION hub，点 **「开启 Nostation 开机同步」**
