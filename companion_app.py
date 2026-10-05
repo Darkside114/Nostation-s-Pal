@@ -51,11 +51,16 @@ APP_NAME_EN = "Nostation's Pal"
 APP_EXE_NAME = "NostationsPal"          # 不带扩展名，产物为 NostationsPal.exe
 APP_MUTEX_NAME = "NostationPal"
 APP_DATA_DIR = "NostationPal"           # %LOCALAPPDATA%\NostationPal
-APP_VERSION = "2.0.0"
-APP_BUILD = 200
+APP_VERSION = "2.0.1"
+APP_BUILD = 201
 # 版本历史（每次迭代都要改 APP_VERSION / APP_BUILD 并在这里记一行）
 CHANGELOG = [
-    ("2.0.0", "正式更名 Nostation's Pal：程序名、exe 文件名与内部标识全部改为 ASCII，从根上杜绝中文名导致的乱码（计划任务里出现乱码路径、自检误报失效）；新增按地址抓取真实温湿度并显示到 NOSTATION 屏幕"),
+    ("2.0.1", "修复自动更新在「系统设了代理、但代理软件没运行」时静默失效的问题："
+              "先按系统代理请求，失败则绕过代理直连重试一次"),
+    ("2.0.0", "正式更名 Nostation's Pal：程序名、exe 文件名与内部标识全部改为 ASCII，"
+              "从根上杜绝中文名导致的乱码（计划任务出现乱码路径、自检误报失效）；"
+              "修复「点了开启开机同步仍显示未开启」与「自动更新替换后启动不了」；"
+              "修复关机时弹出的临时目录残留警告框"),
     ("1.12.0", "根治「Failed to remove temporary directory」警告框：后台同步进程现在会接收系统关机通知并优雅退出，不再被 Windows 强杀，临时目录因此能正常清理；启动时也会回收历史残留"),
     ("1.11.0", "处理「Failed to remove temporary directory」警告框：单文件程序"
                "非正常结束时会在系统临时目录留下约 30 MB 残留，现在启动时会自动"
@@ -922,20 +927,47 @@ def version_tuple(text):
 def fetch_latest_release():
     """查询最新 Release。返回 dict，网络失败返回 None。
 
-    只用标准库 urllib，不引入新依赖；带 20 秒超时，失败静默返回 None
+    只用标准库 urllib，不引入新依赖；带超时，失败静默返回 None
     —— 检查更新失败不该影响软件正常使用。
+
+    **为什么要"失败后绕过代理重试"**：urllib 在 Windows 上会读取系统代理设置
+    （注册表 HKCU\\...\\Internet Settings）。很多用户装了代理软件（Clash 之类），
+    系统代理指向 127.0.0.1:7890，但代理软件不一定在运行 —— 这时连接会被
+    **立即拒绝**（WinError 10061），自动更新就静默失效了。
+    实测遇到过：同一条命令手工 curl 能通，程序里却报
+    「由于目标计算机积极拒绝，无法连接」。
+    所以先按系统设置走一次，失败就显式禁用代理再试一次，两者取其成功。
     """
     import urllib.request
-    req = urllib.request.Request(
-        UPDATE_API,
-        headers={"User-Agent": "NostationsPal/{}".format(APP_VERSION),
-                 "Accept": "application/vnd.github+json"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=UPDATE_TIMEOUT) as resp:
-            data = json.loads(resp.read().decode("utf-8", "replace"))
-    except Exception as exc:
-        log("检查更新失败（网络或接口）: {}".format(exc))
+
+    def _try(use_proxy):
+        req = urllib.request.Request(
+            UPDATE_API,
+            headers={"User-Agent": "NostationsPal/{}".format(APP_VERSION),
+                     "Accept": "application/vnd.github+json"},
+        )
+        if use_proxy:
+            opener = urllib.request.build_opener()
+        else:
+            opener = urllib.request.build_opener(
+                urllib.request.ProxyHandler({}))
+        with opener.open(req, timeout=UPDATE_TIMEOUT) as resp:
+            return json.loads(resp.read().decode("utf-8", "replace"))
+
+    data = None
+    first_err = None
+    for use_proxy in (True, False):
+        try:
+            data = _try(use_proxy)
+            break
+        except Exception as exc:
+            if first_err is None:
+                first_err = exc
+            if use_proxy:
+                log("检查更新失败（{}），改试直连…".format(exc))
+            else:
+                log("检查更新失败（网络或接口）: {}".format(first_err))
+    if data is None:
         return None
     tag = data.get("tag_name") or ""
     asset_url, asset_size, asset_digest = "", 0, ""
