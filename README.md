@@ -229,7 +229,7 @@ $env:NOSTATION_PYTHON = "D:\Python312\python.exe"
 ## 项目结构
 
 ```
-nostation-hub-sync/
+Nostation-s-Pal/
 ├── companion_app.py          # 主程序（界面 + 协议 + 后台巡查 + 许可）
 ├── build_exe.ps1             # 一键打包（自动探测 Python）
 ├── resolve_python.ps1        # Python 解释器探测（多个脚本共用）

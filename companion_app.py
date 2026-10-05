@@ -151,7 +151,7 @@ COMPANY = "Darkside"
 COPYRIGHT_YEAR = "2026"
 COPYRIGHT = "Copyright (C) {} {}  (MIT License)".format(COPYRIGHT_YEAR, AUTHOR)
 COPYRIGHT_CN = "版权所有 © {} {}，依 MIT 许可证发布".format(COPYRIGHT_YEAR, AUTHOR)
-HOMEPAGE = "https://github.com/Darkside114/nostation-hub-sync"
+HOMEPAGE = "https://github.com/Darkside114/Nostation-s-Pal"
 CONTACT = ""            # 反馈邮箱/QQ 等，可留空
 EDITION = "完整版"
 # 许可条款的版本号，用**条款最后修改日期**，与软件版本号无关。
@@ -905,7 +905,7 @@ def changelog_text():
 # 检查更新（走 GitHub Releases 公开 API）
 # ---------------------------------------------------------------------------
 
-UPDATE_API = "https://api.github.com/repos/Darkside114/nostation-hub-sync/releases/latest"
+UPDATE_API = "https://api.github.com/repos/Darkside114/Nostation-s-Pal/releases/latest"
 UPDATE_PAGE = HOMEPAGE + "/releases/latest"
 UPDATE_ASSET_NAME = "Nostation.exe"
 UPDATE_TIMEOUT = 20
@@ -1940,8 +1940,10 @@ def stop_legacy_watchers():
 RUN_KEY = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
 RUN_KEY_WIN = r"Software\Microsoft\Windows\CurrentVersion\Run"
 RUN_VALUE = "NostationPal"
-# 备份用的旧值名，安装过早期版本时一并清理
-RUN_VALUE_LEGACY = "NostationSync"   # 旧版注册表值名，仍需清理
+# 早期版本用过的注册表值名，升级到 2.0（改名 Nostation's Pal）后要一并清理，
+# 否则老用户机器上会同时存在两个自启项，开机拉起两个后台进程。
+RUN_VALUE_LEGACY = "NostationSync"          # 最早的脚本版
+RUN_VALUE_LEGACY_2 = "NostationAutoSync"    # 1.x 的单文件版
 
 
 def startup_folder():
@@ -2145,7 +2147,7 @@ def enable_registry_autostart():
 
 def disable_registry_autostart():
     removed = False
-    for name in (RUN_VALUE, RUN_VALUE_LEGACY):
+    for name in (RUN_VALUE, RUN_VALUE_LEGACY, RUN_VALUE_LEGACY_2):
         if _reg_read(name):
             _reg_delete(name)
             removed = True
@@ -2299,7 +2301,7 @@ def find_autostart_traces(only_unwanted=False):
     for key in RUN_KEYS:
         for name in _reg_list_values(key):
             value = _reg_read_at(key, name)
-            if not (_is_ours(value) or name in (RUN_VALUE, RUN_VALUE_LEGACY)):
+            if not (_is_ours(value) or name in (RUN_VALUE, RUN_VALUE_LEGACY, RUN_VALUE_LEGACY_2)):
                 continue
             if only_unwanted:
                 # 当前命名的那条自启项属于"正在使用"，不算残留
@@ -2314,7 +2316,7 @@ def find_autostart_traces(only_unwanted=False):
 
     for key in STARTUP_APPROVED_KEYS:
         for name in _reg_list_values(key):
-            if name in (RUN_VALUE, RUN_VALUE_LEGACY) or _is_ours(name):
+            if name in (RUN_VALUE, RUN_VALUE_LEGACY, RUN_VALUE_LEGACY_2) or _is_ours(name):
                 if only_unwanted:
                     continue    # 只是任务管理器里的开关记录，跟着 Run 项一起清，不算残留
                 traces.append("注册表 HKCU\\{} 的值 {!r}".format(key, name))
@@ -2376,7 +2378,7 @@ def clean_all_autostart():
         removed = []
         for name in _reg_list_values(key):
             value = _reg_read_at(key, name)
-            if _is_ours(value) or name in (RUN_VALUE, RUN_VALUE_LEGACY):
+            if _is_ours(value) or name in (RUN_VALUE, RUN_VALUE_LEGACY, RUN_VALUE_LEGACY_2):
                 if _reg_delete_at(key, name):
                     removed.append(name)
         if removed:
@@ -2384,7 +2386,7 @@ def clean_all_autostart():
     for key in STARTUP_APPROVED_KEYS:
         removed = []
         for name in _reg_list_values(key):
-            if name in (RUN_VALUE, RUN_VALUE_LEGACY) or _is_ours(name):
+            if name in (RUN_VALUE, RUN_VALUE_LEGACY, RUN_VALUE_LEGACY_2) or _is_ours(name):
                 if _reg_delete_at(key, name):
                     removed.append(name)
         if removed:

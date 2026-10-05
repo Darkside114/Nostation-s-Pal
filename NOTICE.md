@@ -59,4 +59,4 @@ Copyright (c) 2026 Darkside
 
 **如果这个软件帮到了你，欢迎点个 Star（星标）—— 开源项目靠这个被人看到：**
 
-https://github.com/Darkside114/nostation-hub-sync
+https://github.com/Darkside114/Nostation-s-Pal
