@@ -1,0 +1,16 @@
+# 构建与运行本软件所需的 Python 依赖
+#
+#   pip install -r requirements.txt
+#
+# 版本号取自实际构建环境（Windows / Python 3.12）。
+# 只要满足"能导入"即可，不必严格等于下面的版本。
+
+# USB HID 通信（读写 NOSTATION 的 raw HID 接口）—— 运行必需
+hidapi>=0.14
+
+# 运行时用于把图标最大帧画成合适尺寸的窗口图标 —— 运行必需
+# 注意：打包时不要把 PIL 整个排除掉，否则窗口图标会退回模糊的小图
+Pillow>=10
+
+# 打包成单文件 exe —— 仅构建时需要
+pyinstaller>=6.0

@@ -1,0 +1,17 @@
+# 统一行尾：文本文件在仓库里一律存 LF，检出时由 git 按平台处理
+* text=auto
+
+# 明确各类型
+*.py      text eol=lf
+*.ps1     text eol=lf
+*.md      text eol=lf
+*.txt     text eol=lf
+*.vbs     text eol=lf
+*.yml     text eol=lf
+*.json    text eol=lf
+*.gitignore text eol=lf
+
+# 二进制资源，禁止任何转换
+*.ico     binary
+*.png     binary
+*.exe     binary
