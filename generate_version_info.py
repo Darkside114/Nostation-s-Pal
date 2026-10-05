@@ -29,7 +29,7 @@ def read_constants():
             ns[name] = eval(expr, {"__builtins__": {}}, dict(ns))
         except Exception:
             continue
-    for name in ("APP_TITLE", "APP_NAME_EN", "APP_VERSION", "APP_BUILD",
+    for name in ("APP_TITLE", "APP_NAME_EN", "APP_EXE_NAME", "APP_VERSION", "APP_BUILD",
                  "AUTHOR", "COMPANY", "COPYRIGHT", "EDITION"):
         if name not in ns:
             raise SystemExit("companion_app.py 里找不到常量 {}".format(name))
@@ -81,8 +81,9 @@ def main():
             sys.stdout.reconfigure(encoding="utf-8")
         except Exception:
             pass
-        # 文件名用的产品名（去掉标题里的空格）：Nostation自动同步伴侣.exe
-        fname = c["APP_TITLE"].replace(" ", "")
+        # 产物文件名用独立的 ASCII 常量，不从标题推导：
+        # 标题是 "Nostation's Pal"（带撇号、可能含非 ASCII），不能直接当文件名。
+        fname = c["APP_EXE_NAME"]
         sys.stdout.write("{}.exe".format(fname))
         return
 
@@ -99,7 +100,7 @@ def main():
         version=version,
         copyright=c["COPYRIGHT"] + "  依 MIT 许可证发布，版权归 {} 所有".format(c["AUTHOR"]),
         trademarks="{} 是 {} 的标识".format(c["APP_TITLE"], c["AUTHOR"]),
-        filename="{}.exe".format(c["APP_TITLE"]),
+        filename="{}.exe".format(c["APP_EXE_NAME"]),
         product=c["APP_TITLE"],
         comments="By {}. {}  {}  Open Source (MIT)".format(
             c["AUTHOR"], c["COPYRIGHT"], c["EDITION"]),

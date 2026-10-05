@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Nostation 自动同步伴侣 —— 带界面的单文件程序。
+"""Nostation's Pal —— 带界面的单文件程序。
 
 同一个 exe 有几种工作模式（由参数决定）:
 
-    Nostation自动同步伴侣.exe               打开操作界面
-    Nostation自动同步伴侣.exe --watch       后台监视进程（开机自启调用，无窗口）
-    Nostation自动同步伴侣.exe --sync-now    立刻校时一次（无窗口）
+    NostationsPal.exe               打开操作界面
+    NostationsPal.exe --watch       后台监视进程（开机自启调用，无窗口）
+    NostationsPal.exe --sync-now    立刻校时一次（无窗口）
 
 界面上的两个按钮:
     「开启 Nostation 开机同步」 -> 写登录启动项 + 启动后台监视进程 + 立刻校时一次
@@ -38,12 +38,24 @@ import traceback
 # 软件标识 / 版权
 # ---------------------------------------------------------------------------
 
-APP_TITLE = "Nostation 自动同步伴侣"
-APP_NAME_EN = "Nostation Auto Sync Companion"
-APP_VERSION = "1.12.0"
-APP_BUILD = 1120
+APP_TITLE = "Nostation's Pal"
+APP_NAME_EN = "Nostation's Pal"
+# 产物文件名与内部标识**一律用 ASCII**。
+#
+# 为什么必须这样：程序名里一旦有非 ASCII 字符（比如中文），
+# PowerShell 5.1 会按系统 ANSI 代码页（简体中文下是 GBK）解析命令行参数，
+# 于是传给 PowerShell 的 exe 路径变成乱码
+# （"Nostation自动同步伴侣.exe" -> "Nostation鑷姩鍚屾浠.exe"），
+# 结果计划任务里存下乱码路径、自检永远报 stale、进程探测也匹配不上。
+# 用纯 ASCII 名字可以从根上杜绝这一类问题。
+APP_EXE_NAME = "NostationsPal"          # 不带扩展名，产物为 NostationsPal.exe
+APP_MUTEX_NAME = "NostationPal"
+APP_DATA_DIR = "NostationPal"           # %LOCALAPPDATA%\NostationPal
+APP_VERSION = "2.0.0"
+APP_BUILD = 200
 # 版本历史（每次迭代都要改 APP_VERSION / APP_BUILD 并在这里记一行）
 CHANGELOG = [
+    ("2.0.0", "正式更名 Nostation's Pal：程序名、exe 文件名与内部标识全部改为 ASCII，从根上杜绝中文名导致的乱码（计划任务里出现乱码路径、自检误报失效）；新增按地址抓取真实温湿度并显示到 NOSTATION 屏幕"),
     ("1.12.0", "根治「Failed to remove temporary directory」警告框：后台同步进程现在会接收系统关机通知并优雅退出，不再被 Windows 强杀，临时目录因此能正常清理；启动时也会回收历史残留"),
     ("1.11.0", "处理「Failed to remove temporary directory」警告框：单文件程序"
                "非正常结束时会在系统临时目录留下约 30 MB 残留，现在启动时会自动"
@@ -244,8 +256,8 @@ KNOWN_NAMES = {
 
 WEEKDAY_NAMES = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"]
 
-TASK_NAME = "Nostation hub clock sync"
-SHORTCUT_NAME = "Nostation hub clock sync.lnk"
+TASK_NAME = "Nostation Pal hub clock sync"
+SHORTCUT_NAME = "Nostation Pal hub clock sync.lnk"
 
 WATCHER_LOCK_PORTS = range(47843, 47853)   # 后台监视进程单实例锁
 GUI_LOCK_PORTS = range(47853, 47863)       # 界面单实例（防止重复打开）
@@ -272,10 +284,40 @@ def exe_path():
     return os.path.abspath(__file__)
 
 
+def _migrate_legacy_data_dir(new_dir):
+    """把旧版（NostationSync）目录里的用户数据搬到新目录（NostationPal）。
+
+    2.0 改了程序名，数据目录也跟着换了。已同意过的许可、地址设置等
+    不该因为改名而丢失，所以做一次性的搬运：
+      * 只搬配置文件与设备拒绝记录，不搬日志（日志本来就每次清空）
+      * 新目录已有同名文件时不覆盖（以新目录为准）
+      * 任何失败都不影响启动，最坏就是回到"重新同意一次条款"
+    """
+    try:
+        local = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+        old_dir = os.path.join(local, "NostationSync")
+        if not os.path.isdir(old_dir):
+            return
+        if os.path.normcase(os.path.abspath(old_dir)) == \
+                os.path.normcase(os.path.abspath(new_dir)):
+            return
+        for name in ("config.json", "rejected-devices.json"):
+            src = os.path.join(old_dir, name)
+            dst = os.path.join(new_dir, name)
+            if os.path.exists(src) and not os.path.exists(dst):
+                try:
+                    shutil.copy2(src, dst)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
 def data_dir():
-    d = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "NostationSync")
+    d = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), APP_DATA_DIR)
     try:
         os.makedirs(d, exist_ok=True)
+        _migrate_legacy_data_dir(d)
     except Exception:
         d = script_dir()
     return d
@@ -796,7 +838,7 @@ def help_text():
 
 问：怎么彻底卸载？
 答：先点「停止同步」，再删掉这个 exe 就行。程序不写系统目录，
-    数据只在 %LOCALAPPDATA%\\NostationSync（可以直接删）。
+    数据只在 %LOCALAPPDATA%\\NostationPal（可以直接删）。
 
 问：它会不会偷偷联网、上传数据？
 答：不会上传任何数据。只有「检查更新」会访问 GitHub 查版本号，
@@ -886,7 +928,7 @@ def fetch_latest_release():
     import urllib.request
     req = urllib.request.Request(
         UPDATE_API,
-        headers={"User-Agent": "NostationAutoSyncCompanion/{}".format(APP_VERSION),
+        headers={"User-Agent": "NostationsPal/{}".format(APP_VERSION),
                  "Accept": "application/vnd.github+json"},
     )
     try:
@@ -962,7 +1004,7 @@ def download_update(rel, dest, progress=None):
         return False, "这个版本没有可下载的文件"
     try:
         req = urllib.request.Request(
-            url, headers={"User-Agent": "NostationAutoSyncCompanion/{}".format(APP_VERSION)})
+            url, headers={"User-Agent": "NostationsPal/{}".format(APP_VERSION)})
         tmp = dest + ".part"
         with urllib.request.urlopen(req, timeout=60) as resp, open(tmp, "wb") as out:
             total = int(resp.headers.get("Content-Length") or rel.get("asset_size") or 0)
@@ -1780,9 +1822,68 @@ def self_heal_location(repair=True):
     return found, fixed
 
 
+def _same_exe_process(pid):
+    """判断该 pid 是不是"同一个 exe 文件"的进程（用于避免误杀别的程序）。"""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        kernel32 = ctypes.windll.kernel32
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL,
+                                         wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        h = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False,
+                                 int(pid))
+        if not h:
+            return False
+        try:
+            buf = ctypes.create_unicode_buffer(4096)
+            size = wintypes.DWORD(len(buf))
+            kernel32.QueryFullProcessImageNameW.argtypes = [
+                wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR,
+                ctypes.POINTER(wintypes.DWORD)]
+            if not kernel32.QueryFullProcessImageNameW(h, 0, buf,
+                                                       ctypes.byref(size)):
+                return False
+            return os.path.normcase(os.path.abspath(buf.value)) == \
+                os.path.normcase(os.path.abspath(exe_path()))
+        finally:
+            kernel32.CloseHandle(h)
+    except Exception:
+        return False
+
+
 def running_watcher_pids():
-    """返回后台监视进程的 pid（本 exe 的 --watch，以及旧版 pythonw 脚本）。"""
+    """返回后台监视进程的 pid（本 exe 的 --watch，以及旧版 pythonw 脚本）。
+
+    **为什么不能只靠 CommandLine 匹配**：PyInstaller 单文件模式的子进程
+    在 WMI 里 CommandLine 是**空**的。后台进程是用
+    `DETACHED_PROCESS | CREATE_NO_WINDOW` 拉起的，实测
+    `Get-CimInstance Win32_Process` 查到的 CommandLine 为空字符串，
+    于是 `CommandLine -like '*--watch*'` 永远不成立 —— 后果是：
+      * 界面把"已设置开机自启"误显示成「未开启」
+      * 自动更新重启时杀不掉旧的后台进程，替换失败
+    所以主路径改为读 watcher.pid（后台进程启动时本来就会写），
+    再用"进程存活 + 确实是同一个 exe"两条校验兜底；
+    CommandLine 匹配只作为旧版脚本的兼容分支保留。
+    """
     me = os.getpid()
+    pids = []
+
+    # --- 主路径：watcher.pid ---
+    try:
+        pf = pid_file()
+        if os.path.exists(pf):
+            with open(pf, "r", encoding="utf-8", errors="replace") as fh:
+                raw = (fh.read() or "").strip()
+            if raw.isdigit():
+                pid = int(raw)
+                if pid != me and pid_alive(raw) and _same_exe_process(pid):
+                    pids.append(pid)
+    except Exception:
+        pass
+
+    # --- 兼容分支：旧版 pythonw 脚本 / 命令行里带 --watch 的情况 ---
     name = os.path.basename(exe_path()).replace("'", "''")
     code, out, _ = _run_ps(
         "Get-CimInstance Win32_Process | "
@@ -1793,7 +1894,6 @@ def running_watcher_pids():
         "Get-CimInstance Win32_Process -Filter \"Name = 'pythonw.exe'\" | "
         "Where-Object { $_.CommandLine -like '*nostation_watcher.py*' } | "
         "ForEach-Object { $_.ProcessId }")
-    pids = []
     for token in (out + " " + out2).split():
         try:
             pid = int(token)
@@ -1839,9 +1939,9 @@ def stop_legacy_watchers():
 
 RUN_KEY = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
 RUN_KEY_WIN = r"Software\Microsoft\Windows\CurrentVersion\Run"
-RUN_VALUE = "NostationAutoSync"
+RUN_VALUE = "NostationPal"
 # 备份用的旧值名，安装过早期版本时一并清理
-RUN_VALUE_LEGACY = "NostationSync"
+RUN_VALUE_LEGACY = "NostationSync"   # 旧版注册表值名，仍需清理
 
 
 def startup_folder():
@@ -2011,6 +2111,7 @@ def _is_ours(value):
     if not text:
         return False
     markers = ["nostation", "nostationautosync", "nostationsync",
+               "nostationpal",
                os.path.basename(exe_path()).lower()]
     return any(m in text for m in markers)
 
@@ -2900,10 +3001,16 @@ class App:
                 text="开机自动同步：已开启（{}）· 后台同步中".format(
                     " + ".join(how) or "仅后台进程在运行"),
                 foreground="#1e8449")
-        else:
-            extra = "（已设置开机自启，下次开机生效）" if configured else ""
+        elif configured:
+            # 已经设好自启、只是此刻后台进程没在跑：不应显示成"未开启"，
+            # 否则用户会以为按钮没生效（这正是之前的一个 bug）。
             self.auto_label.configure(
-                text="开机自动同步：未开启" + extra, foreground="#c0392b")
+                text="开机自动同步：已开启（{}）· 后台进程未运行（点「重新检查」或重启即可）".format(
+                    " + ".join(how)),
+                foreground="#b9770e")
+        else:
+            self.auto_label.configure(
+                text="开机自动同步：未开启", foreground="#c0392b")
 
         # 与设备相关的操作按钮：没连上就置灰
         self.hub_online = state["hub"]
@@ -3302,7 +3409,7 @@ class App:
                     "自动替换失败",
                     "新版已下载到：\n{}\n\n但自动替换没能启动（{}）。\n"
                     "请手动关闭本程序，把上面这个文件改名为 "
-                    "Nostation自动同步伴侣.exe 覆盖旧版。".format(dest, info_spawn),
+                    "NostationsPal.exe 覆盖旧版。".format(dest, info_spawn),
                     parent=self.root)
                 return
             messagebox.showinfo(
