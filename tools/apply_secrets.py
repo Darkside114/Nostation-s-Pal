@@ -120,25 +120,46 @@ def write_secrets(key, host):
     return SECRETS
 
 
+# 已被 .gitignore 忽略、允许在本机持有凭据的文件（不算泄漏）
+ALLOWED_LOCAL = {"app_secrets.py"}
+
+
 def scan_leaks():
-    """扫描仓库里（除 .git/dist/build 外）是否还有硬编码凭据。"""
+    """扫描仓库里是否还有硬编码凭据。
+
+    只认"看起来像真的凭据"的值：长度足够，且不含正则元字符或
+    格式化占位符。早期版本用 ([^"]+) 抓任意非空串，结果把本文件里的
+    正则片段（如 [^"\n]*）和占位符（%s）都当成了凭据，一直误报。
+    """
     leaks = []
-    pat = re.compile(r'(?:QWEATHER|DEFAULT_QW\w*)_(?:KEY|HOST)\s*=\s*"([^"]+)"')
+    pat = re.compile(
+        r'(?:QWEATHER|DEFAULT_QW\w*)_(?:KEY|HOST)\s*=\s*"([^"]+)"')
+    bad_chars = set('[]()*+?|\\^$%{}')
     for root, dirs, files in os.walk(REPO):
         dirs[:] = [d for d in dirs
                    if d not in (".git", "dist", "build", "__pycache__")]
         for f in files:
+            if f in ALLOWED_LOCAL:
+                continue
             if not f.endswith((".py", ".ps1", ".md", ".json", ".txt")):
                 continue
-            p = os.path.join(root, f)
+            path = os.path.join(root, f)
             try:
-                s = io.open(p, encoding="utf-8", errors="replace").read()
+                body = io.open(path, encoding="utf-8", errors="replace").read()
             except Exception:
                 continue
-            for i, line in enumerate(s.splitlines(), 1):
+            for i, line in enumerate(body.splitlines(), 1):
                 m = pat.search(line)
-                if m and m.group(1):
-                    leaks.append((os.path.relpath(p, REPO), i, m.group(1)[:8] + "..."))
+                if not m:
+                    continue
+                v = m.group(1)
+                if len(v) < 12:                     # 太短，不是凭据
+                    continue
+                if any(ch in bad_chars for ch in v):
+                    continue                        # 正则片段/占位符
+                if not re.fullmatch(r"[A-Za-z0-9._\-]+", v):
+                    continue                        # 含异常字符
+                leaks.append((os.path.relpath(path, REPO), i, v[:8] + "..."))
     return leaks
 
 
