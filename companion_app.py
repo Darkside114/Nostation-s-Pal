@@ -51,10 +51,11 @@ APP_NAME_EN = "Nostation's Pal"
 APP_EXE_NAME = "NostationsPal"          # 不带扩展名，产物为 NostationsPal.exe
 APP_MUTEX_NAME = "NostationPal"
 APP_DATA_DIR = "NostationPal"           # %LOCALAPPDATA%\NostationPal
-APP_VERSION = "2.2.0"
-APP_BUILD = 220
+APP_VERSION = "2.2.1"
+APP_BUILD = 221
 # 版本历史（每次迭代都要改 APP_VERSION / APP_BUILD 并在这里记一行）
 CHANGELOG = [
+    ("2.2.1", "修复：后台定时刷新不再反复抢占 hub 屏幕画面。开启自动切换时也只切一次；用户按弹出设备物理键选的画面会被尊重。（此前每次刷新都会把屏幕切到天气画面）"),
     ("2.2.0", "不再自动抢占屏幕画面模式（设备上有 SCR_MOD 物理键，原来每次刷新都会把用户选的画面抢回自定义画面，看起来就像屏幕显示异常）；新增「hub 屏幕画面」设置块，可手动切换画面模式并读取当前模式"),
     ("2.1.7", "修正：设备写屏失败后的退避机制不再拦住用户手动刷新（退避只用于后台自动重试）；用户点刷新即视为主动重试"),
     ("2.1.6", "修复湿度的百分号显示不完整：系统字体在 6x10 点阵下画不出完整的 %，改为手工设计的字形"),
@@ -4029,7 +4030,8 @@ class App:
             self.set_status("正在把预览内容写入屏幕…")
 
             def work():
-                ok, why = ws.push(cached)
+                # 用户明确点了刷新，这里要切到天气画面
+                ok, why = ws.push(cached, want_screen=True)
                 if ok:
                     # 记下指纹，这样后台定时刷新能识别"值没变"
                     ws._note_push_success(ws._screen_fingerprint(

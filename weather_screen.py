@@ -43,6 +43,11 @@ CFG_FAIL_AT = "weather_push_fail_at"
 # 默认关闭：设备上有 SCR_MOD（切换屏幕模式）物理键，用户会自己切。
 # 若程序每次都强制切模式，就会把用户的选择抢回去。
 CFG_FORCE = "weather_force_custom_screen"
+# 是否已经成功切过一次画面。
+# 用户反馈过"软件每次刷新都会把我的 hub 屏幕切过去，不要每次都切" ——
+# 所以后台定时刷新只在**还没切过**时切一次，之后即使开着上面的开关
+# 也不再重复抢画面，尊重用户在设备上用物理键做的选择。
+CFG_SWITCHED = "weather_screen_switched"
 
 DEFAULT_INTERVAL_MIN = 15
 MIN_INTERVAL_MIN = 5
@@ -84,6 +89,7 @@ class WeatherScreen:
             "last_error": cfg.get(CFG_LAST_ERR, "") or "",
             "last_pushed": cfg.get(CFG_LAST_PUSH, "") or "",
             "force_custom": bool(cfg.get(CFG_FORCE)),
+            "screen_switched": bool(cfg.get(CFG_SWITCHED)),
             "fail_count": int(cfg.get(CFG_FAIL_COUNT) or 0),
             "fail_at": cfg.get(CFG_FAIL_AT, "") or "",
         }
@@ -96,6 +102,7 @@ class WeatherScreen:
             "enabled": CFG_ENABLED, "place": CFG_PLACE,
             "provider": CFG_PROVIDER, "key": CFG_QW_KEY, "host": CFG_QW_HOST,
             "interval": CFG_INTERVAL, "force_custom": CFG_FORCE,
+            "screen_switched": CFG_SWITCHED,
         }
         for k, v in kw.items():
             if k in mapping:
@@ -222,8 +229,21 @@ class WeatherScreen:
         cfg.pop(CFG_FAIL_AT, None)
         ca.save_config(cfg)
 
-    def push(self, result):
-        """把结果渲染并上传到辅助屏。返回 (ok, 说明)。"""
+    def push(self, result, want_screen=False):
+        """把结果渲染并上传到辅助屏。返回 (ok, 说明)。
+
+        == 关于抢不抢显示模式（用户明确反馈过的问题）==
+          设备上有 SCR_MOD 物理键，用户会自己选画面。早期实现只要
+          开了"自动切到自定义画面"，就**每次刷新都发 SET_AUX_MODE(0)**，
+          等于每 15 分钟把用户选的画面顶掉 —— 用户反馈
+          "软件每次刷新地区时间都会把我的 hub 屏幕切过去，不要每次都切"。
+
+          现在改成：
+            * want_screen=False（后台定时刷新）：**只在还没有成功切过一次时**
+              切一次；之后即使开着开关也不再重复抢，尊重用户在设备上的选择。
+            * want_screen=True（用户点了「立即刷新屏幕」）：用户明确要看天气，
+              这时才每次都切过去。
+        """
         try:
             # 屏幕上第一行显示解析出来的区名（如 "锦江区"）
             label = weather.short_label(result, limit=8) or ""
@@ -233,10 +253,12 @@ class WeatherScreen:
             dev = screen.open_dev()
             if not dev:
                 return False, "未检测到 NOSTATION"
-            # 只有用户明确要求时才抢显示模式；
-            # 默认不抢，把模式留给设备上的 SCR_MOD 物理键。
             st = self.settings()
-            mode = screen.AUX_MODE_CUSTOM if st.get("force_custom") else None
+            mode = None
+            if st.get("force_custom"):
+                switched = bool(st.get("screen_switched"))
+                if want_screen or not switched:
+                    mode = screen.AUX_MODE_CUSTOM
             try:
                 ok, why = screen.upload(dev, payload, switch_mode=mode)
             finally:
@@ -244,9 +266,27 @@ class WeatherScreen:
                     dev.close()
                 except Exception:
                     pass
+            if ok and mode is not None:
+                # 记下"已经切过"，避免后台刷新反复抢画面
+                self._mark_screen_switched()
             return ok, why
         except Exception as exc:
             return False, "{}: {}".format(type(exc).__name__, exc)
+
+    def _mark_screen_switched(self):
+        cfg, ca = self._cfg()
+        if ca is None:
+            return
+        cfg[CFG_SWITCHED] = True
+        ca.save_config(cfg)
+
+    def reset_switched_flag(self):
+        """清掉"已切过"标记。用户手动改过画面后再开自动切换时会用到。"""
+        cfg, ca = self._cfg()
+        if ca is None:
+            return
+        cfg.pop(CFG_SWITCHED, None)
+        ca.save_config(cfg)
 
     def restore_builtin(self, mode=None):
         """把屏幕交还给设备自带画面。
